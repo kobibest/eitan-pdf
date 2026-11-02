@@ -59,6 +59,8 @@ const ICONS = {
   doc: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
   check: '<path d="m5 12 4.5 4.5L19 7"/>',
   mark: '<rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="m7.5 12 3 3 6-6.5"/>',
+  textEdit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/><path d="M14 20h6"/>',
+  revert: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
   redact: '<rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor" stroke="none"/><path d="M3 5h8M3 19h12"/>',
 };
 /** סימון V / X — אותו נתיב בעורך ובקובץ השמור */
@@ -81,10 +83,11 @@ const TOOLS = [
   { id: 'view', label: 'צפייה', icon: 'eye', doc: true, panel: false },
   { id: 'pages', label: 'עמודים', icon: 'grid', doc: true },
   { id: 'sign', label: 'טקסט וחתימה', icon: 'sign', doc: true },
+  { id: 'edit', label: 'עריכת טקסט', icon: 'textEdit', doc: true },
   { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
   { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true },
 ];
-const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'forms']);
+const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'edit', 'forms']);
 
 const docs = new Map(); // id → מסמך
 let activeId = null;
@@ -600,14 +603,17 @@ function editorPage(p, i, maxW, maxH) {
     frame.style.width = info.viewW * scale + 'px';
     frame.style.height = info.viewH * scale + 'px';
     await renderToCanvas(p, info.viewW * scale, frame.querySelector('canvas'), true);
+    ctx.info = info;
     if (!info.blank) drawFields(ctx, info);
     drawItems(ctx);
+    drawEdits(ctx);
   };
   lazy.observe(frame);
   drawItems(ctx);
 
   overlay.addEventListener('pointerdown', (e) => {
     if (e.target !== overlay) return;
+    if (S.tool === 'edit') return emptyEditClick(ctx);
     if (!S.placing) {
       if (S.activeItem) { S.activeItem = null; refreshItems(); }
       return;
@@ -721,6 +727,7 @@ function drawItems(ctx) {
     else n.remove();
   });
   for (const it of items) {
+    if (it.type === 'edit') continue; // שורות ערוכות מצוירות בשכבה משלהן (drawEdits)
     if (keep && keep.dataset.id === it.id) {
       keep.style.left = it.x * ctx.scale + 'px';
       keep.style.top = it.y * ctx.scale + 'px';
@@ -899,6 +906,356 @@ function deleteActiveItem() {
     S.stamps[key] = (S.stamps[key] || []).filter((x) => x.id !== id);
     S.activeItem = null;
   });
+}
+
+/* =========================================================
+ * עריכת הטקסט הקיים בעמוד
+ * לוחצים על שורה → היא נפתחת לעריכה במקום. בשמירה השורה המקורית נמחקת
+ * מהקובץ והחדשה נכתבת דרך מנוע העברית (ראו src/core/textedit.js).
+ * ======================================================= */
+const { TextEdit } = window;
+const lineCache = new Map(); // `${src}:${index}` → Promise<{ lines, base }>
+
+/** השורות של עמוד מקור (מחושב פעם אחת לכל עמוד) */
+function pageLines(p) {
+  if (p.src === 'blank') return Promise.resolve({ lines: [], base: [] });
+  const k = p.src + ':' + p.index;
+  if (!lineCache.has(k)) {
+    lineCache.set(k, (async () => {
+      const src = S.sources.get(p.src);
+      if (!src.libDoc) src.libDoc = window.PDFLib.PDFDocument.load(src.bytes, { ignoreEncryption: true, updateMetadata: false });
+      let lines = [];
+      try {
+        const doc = await src.libDoc;
+        lines = TextEdit.groupLines(TextEdit.analyzePage(doc, doc.getPage(p.index)).glyphs);
+      } catch (e) {
+        console.warn('ניתוח הטקסט בעמוד נכשל', e);
+      }
+      return { lines, base: lines.map((L) => TextEdit.editFromLine(L, lines)) };
+    })());
+  }
+  return lineCache.get(k);
+}
+
+const editsOf = (key) => (S.stamps[key] || []).filter((it) => it.type === 'edit');
+const isChanged = (it) => it.text !== it.original || it.restyled;
+const unreadable = (b) => /�|[-]/.test(b.original) || !b.original.trim();
+
+/** ממרחב המשתמש של ה-PDF לפיקסלים של המסגרת */
+function screenMap(ctx) {
+  const vp = ctx.info.page.getViewport({ scale: ctx.scale, rotation: ctx.info.rotation });
+  return (x, y) => vp.convertToViewportPoint(x, y);
+}
+
+/** מיקום שורה על המסך: נקודת קו הבסיס בתחילתה, אורך, זווית, ומלבן הכיסוי */
+function lineGeom(ctx, e) {
+  const tr = screenMap(ctx);
+  const c = Math.cos(e.angle), s = Math.sin(e.angle);
+  const at = (u, v) => tr(u * c - v * s, u * s + v * c);
+  const [ox, oy] = at(e.u0, e.v);
+  const [ex, ey] = at(e.u1, e.v);
+  const pts = [[e.box[0], e.box[1]], [e.box[2], e.box[1]], [e.box[2], e.box[3]], [e.box[0], e.box[3]]].map(([x, y]) => tr(x, y));
+  const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+  return {
+    ox, oy, len: Math.max(4, Math.hypot(ex - ox, ey - oy)), ang: Math.atan2(ey - oy, ex - ox),
+    rect: { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) },
+  };
+}
+
+/** צבע הרקע סביב השורה — הצבע הנפוץ ברצועה שמעליה ומתחתיה על הקנבס */
+function sampleBg(ctx, rect) {
+  try {
+    const cv = ctx.frame.querySelector('canvas');
+    const k = cv.width / parseFloat(cv.style.width);
+    const g = cv.getContext('2d', { willReadFrequently: true });
+    // קבוצות צבע גסות לספירה, וממוצע הפיקסלים האמיתיים של הקבוצה הנפוצה (כדי שלבן יישאר לבן)
+    const count = new Map();
+    for (const yy of [rect.y - 2, rect.y + rect.h + 2]) {
+      const y = Math.round(Math.max(0, Math.min(cv.height - 1, yy * k)));
+      const x0 = Math.round(Math.max(0, rect.x * k)), w = Math.max(1, Math.min(cv.width - x0, Math.round(rect.w * k)));
+      const d = g.getImageData(x0, y, w, 1).data;
+      for (let i = 0; i < d.length; i += 4) {
+        const key = ((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3);
+        const c = count.get(key) || { n: 0, r: 0, g: 0, b: 0 };
+        c.n++; c.r += d[i]; c.g += d[i + 1]; c.b += d[i + 2];
+        count.set(key, c);
+      }
+    }
+    const best = [...count.values()].sort((a, b) => b.n - a.n)[0];
+    if (!best) return '#ffffff';
+    const ch = (v) => Math.round(v / best.n).toString(16).padStart(2, '0');
+    return '#' + ch(best.r) + ch(best.g) + ch(best.b);
+  } catch (e) {
+    return '#ffffff';
+  }
+}
+
+/** עיצוב אלמנט שורה (תצוגה מקדימה או עורך) לפי פריט העריכה */
+function styleLine(wrap, inner, ctx, it, g) {
+  const sizePx = it.size * ctx.scale;
+  const lh = sizePx * 1.3;
+  Object.assign(wrap.style, {
+    left: g.ox + 'px', top: g.oy + 'px', width: g.len + 'px', height: lh + 'px',
+    transform: `rotate(${g.ang}rad) translateY(${-sizePx * 1.02}px)`,
+    justifyContent: it.align === 'right' ? 'flex-end' : it.align === 'center' ? 'center' : 'flex-start',
+  });
+  Object.assign(inner.style, {
+    fontFamily: it.font === 'alef' ? "'Alef'" : "'Plex'", fontWeight: it.bold ? '700' : '400',
+    fontSize: sizePx + 'px', lineHeight: lh + 'px', color: it.color, background: it.bg || '#ffffff',
+  });
+  inner.dir = window.HebrewPDF.hasRTL(it.text || it.original) ? 'rtl' : 'ltr';
+}
+
+function maskEl(g, bg) {
+  const m = h('<div class="tl-mask"></div>');
+  Object.assign(m.style, { left: g.rect.x - 1 + 'px', top: g.rect.y - 1 + 'px', width: g.rect.w + 2 + 'px', height: g.rect.h + 2 + 'px', background: bg || '#ffffff' });
+  return m;
+}
+
+/** שכבת העריכות של עמוד: תצוגה מקדימה של שורות ששונו, ובכלי העריכה — שורות ללחיצה */
+async function drawEdits(ctx) {
+  if (!ctx.info || ctx.info.blank) return;
+  const { p, overlay } = ctx;
+  let layer = overlay.querySelector('.edit-layer');
+  if (!layer) { layer = h('<div class="edit-layer"></div>'); overlay.prepend(layer); }
+  const editing = S.tool === 'edit';
+  layer.classList.toggle('interactive', editing);
+  const { base } = editing || editsOf(p.key).length ? await pageLines(p) : { base: [] };
+  if (!layer.isConnected) return;
+  // עורך פתוח לא נבנה מחדש
+  const open = layer.querySelector('.tl-editor');
+  layer.querySelectorAll(':scope > :not(.tl-editor):not(.tl-editor-mask)').forEach((n) => n.remove());
+  const items = editsOf(p.key);
+  for (const it of items) {
+    if (!isChanged(it) || (open && +open.dataset.idx === it.lineIdx)) continue;
+    const g = lineGeom(ctx, it);
+    layer.append(maskEl(g, it.bg));
+    if (it.text.trim()) {
+      const wrap = h('<div class="tl-preview"><span></span></div>');
+      wrap.firstChild.textContent = it.text;
+      styleLine(wrap, wrap.firstChild, ctx, it, g);
+      layer.append(wrap);
+    }
+  }
+  if (!editing) return;
+  base.forEach((b, idx) => {
+    const it = items.find((x) => x.lineIdx === idx);
+    const g = lineGeom(ctx, it || b);
+    const sel = S.editSel && S.editSel.key === p.key && S.editSel.idx === idx;
+    const t = h(`<div class="tl-hit ${it && isChanged(it) ? 'edited' : ''} ${sel ? 'selected' : ''}" title="${unreadable(b) ? 'לא ניתן לזהות את הטקסט בשורה הזו' : 'לחצו לעריכה'}"></div>`);
+    Object.assign(t.style, { left: g.rect.x - 2 + 'px', top: g.rect.y - 2 + 'px', width: g.rect.w + 4 + 'px', height: g.rect.h + 4 + 'px' });
+    t.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openLineEditor(ctx, idx, e);
+    });
+    layer.append(t);
+  });
+}
+
+function refreshEdits(key) {
+  document.querySelectorAll('#desk .page-frame').forEach((f) => { if (f.__ctx && (!key || f.__ctx.p.key === key)) drawEdits(f.__ctx); });
+}
+
+/** לחיצה על מקום בעמוד שאין בו שורה */
+async function emptyEditClick(ctx) {
+  const { base } = await pageLines(ctx.p);
+  if (!base.length) toast('לא נמצא טקסט שאפשר לערוך בעמוד הזה. ייתכן שהוא סרוק כתמונה — אפשר להשתמש ב"כיסוי לבן" ו"טקסט" בכלי טקסט וחתימה.');
+  if (S.editSel) { S.editSel = null; refreshEdits(); refreshEditPanel(); }
+}
+
+/** יצירה/עדכון של עריכה לשורה. שורה שחזרה למקור — נמחקת מהרשימה */
+function upsertEdit(ctx, idx, changes, b) {
+  const key = ctx.p.key;
+  commit(() => {
+    const list = (S.stamps[key] = S.stamps[key] || []);
+    let it = list.find((x) => x.type === 'edit' && x.lineIdx === idx);
+    if (!it) {
+      it = { id: 'i' + seq++, lineIdx: idx, ...JSON.parse(JSON.stringify(b)), bg: sampleBg(ctx, lineGeom(ctx, b).rect) };
+      list.push(it);
+    }
+    Object.assign(it, changes);
+    if (!isChanged(it)) S.stamps[key] = list.filter((x) => x !== it);
+  }, { render: false });
+  refreshEdits(key);
+  refreshEditPanel();
+}
+
+function revertEdit(key, idx) {
+  commit(() => { S.stamps[key] = (S.stamps[key] || []).filter((x) => !(x.type === 'edit' && x.lineIdx === idx)); }, { render: false });
+  refreshEdits(key);
+  refreshEditPanel();
+}
+
+/** פתיחת שורה לעריכה במקום */
+async function openLineEditor(ctx, idx, ev) {
+  const { base } = await pageLines(ctx.p);
+  const b = base[idx];
+  if (!b) return;
+  if (unreadable(b)) {
+    toast('לא ניתן לזהות את האותיות בשורה הזו (הפונט במסמך לא כולל מידע על התווים). אפשר לכסות אותה ב"כיסוי לבן" ולכתוב מעליה.', { error: true });
+    return;
+  }
+  const layer = ctx.overlay.querySelector('.edit-layer');
+  const old = layer.querySelector('.tl-editor');
+  if (old) old.__finish(true);
+  S.editSel = { key: ctx.p.key, idx };
+  refreshEditPanel();
+  if (!b.ok) toast('השורה כתובה בפונט שלא ניתן למחוק ממנו. אפשר לערוך אותה — בשמירה השורה הישנה תכוסה בצבע הרקע במקום להימחק.');
+
+  const cur = () => editsOf(ctx.p.key).find((x) => x.lineIdx === idx);
+  const it0 = cur() || { ...b, bg: sampleBg(ctx, lineGeom(ctx, b).rect) };
+  const g = lineGeom(ctx, it0);
+  const wrap = h(`<div class="tl-editor" data-idx="${idx}"><span contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="עריכת השורה"></span></div>`);
+  const ed = wrap.firstChild;
+  ed.textContent = it0.text;
+  styleLine(wrap, ed, ctx, it0, g);
+  const mask = maskEl(g, it0.bg);
+  mask.classList.add('tl-editor-mask');
+  layer.append(mask, wrap);
+  layer.querySelectorAll('.tl-hit').forEach((t, k) => t.classList.toggle('selected', k === idx));
+  // התצוגה המקדימה של השורה הזו (אם יש) מוסתרת בזמן העריכה
+  ed.focus({ preventScroll: true });
+  const range = ev && document.caretRangeFromPoint ? document.caretRangeFromPoint(ev.clientX, ev.clientY) : null;
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  if (range && ed.contains(range.startContainer)) sel.addRange(range);
+  else { const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); sel.addRange(r); }
+
+  let done = false;
+  const finish = (save, then) => {
+    if (done) return;
+    done = true;
+    const text = ed.textContent.replace(/[\r\n]+/g, ' ');
+    wrap.remove();
+    mask.remove();
+    const it = cur();
+    if (save && text !== (it ? it.text : b.text)) upsertEdit(ctx, idx, { text }, b);
+    else refreshEdits(ctx.p.key);
+    if (then) then();
+  };
+  wrap.__finish = finish;
+  ed.addEventListener('input', () => {
+    // שורה אחת: ירידת שורה שהודבקה הופכת לרווח
+    if (/[\r\n]/.test(ed.textContent)) ed.textContent = ed.textContent.replace(/[\r\n]+/g, ' ');
+    ed.dir = window.HebrewPDF.hasRTL(ed.textContent || b.original) ? 'rtl' : 'ltr';
+  });
+  ed.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+    else if (e.key === 'Tab') {
+      e.preventDefault();
+      const next = idx + (e.shiftKey ? -1 : 1);
+      finish(true, () => { if (base[next]) requestAnimationFrame(() => openLineEditor(frameCtx(ctx.p.key) || ctx, next)); });
+    }
+  });
+  ed.addEventListener('blur', () => setTimeout(() => { if (!wrap.contains(document.activeElement)) finish(true); }, 0));
+}
+
+const frameCtx = (key) => { const f = $(`#desk .page-frame[data-key="${CSS.escape(key)}"]`); return f && f.__ctx; };
+
+/* ---------- לוח הצד של כלי העריכה ---------- */
+
+function refreshEditPanel() {
+  if (S.tool !== 'edit') return;
+  const panel = $('#panel');
+  const keep = panel.scrollTop;
+  panel.innerHTML = '';
+  editPanel(panel);
+  panel.scrollTop = keep;
+  updateChrome();
+}
+
+function editPanel(panel) {
+  panel.append(h(`
+    <div class="group">
+      <h2>עריכת טקסט</h2>
+      <p class="hint">לוחצים על שורה בעמוד ומקלידים. <kbd>Enter</kbd> לאישור, <kbd>Esc</kbd> לביטול, <kbd>Tab</kbd> לשורה הבאה.</p>
+    </div>`));
+  const sel = S.editSel;
+  const ctx = sel && frameCtx(sel.key);
+  if (sel && ctx) {
+    const grp = h('<div class="group"><h2>עיצוב השורה</h2><div class="tl-style"></div></div>');
+    panel.append(grp);
+    pageLines(ctx.p).then(({ base }) => {
+      const b = base[sel.idx];
+      if (!b) return;
+      const it = editsOf(sel.key).find((x) => x.lineIdx === sel.idx) || b;
+      const box = grp.querySelector('.tl-style');
+      const set = (ch) => upsertEdit(ctx, sel.idx, { ...ch, restyled: true }, b);
+      const keepFocus = (el) => el.addEventListener('pointerdown', (e) => e.preventDefault());
+      const fontSeg = h(`<div class="segmented" role="group" aria-label="פונט">
+        <button aria-pressed="${it.font !== 'alef'}" data-f="plex" style="font-family:'Plex'">IBM Plex</button>
+        <button aria-pressed="${it.font === 'alef'}" data-f="alef" style="font-family:'Alef'">Alef</button></div>`);
+      fontSeg.querySelectorAll('button').forEach((x) => { keepFocus(x); x.onclick = () => set({ font: x.dataset.f }); });
+      const row = h('<div class="tl-row"></div>');
+      const btn = (ic, label, on, fn) => { const x = h(`<button class="icon-btn ${on ? 'on' : ''}" title="${label}" aria-label="${label}" aria-pressed="${!!on}">${icon(ic)}</button>`); keepFocus(x); x.onclick = fn; return x; };
+      row.append(
+        btn('minus', 'הקטנה', false, () => set({ size: Math.max(4, Math.round((it.size - 0.5) * 2) / 2) })),
+        h(`<span class="size" aria-label="גודל">${(+it.size).toFixed(1).replace(/\.0$/, '')}</span>`),
+        btn('plus', 'הגדלה', false, () => set({ size: Math.min(96, Math.round((it.size + 0.5) * 2) / 2) })),
+        h('<span class="sep"></span>'),
+        btn('bold', 'מודגש', it.bold, () => set({ bold: !it.bold })),
+        h('<span class="sep"></span>'),
+        btn('alignR', 'יישור לימין', it.align === 'right', () => set({ align: 'right' })),
+        btn('alignC', 'מרכוז', it.align === 'center', () => set({ align: 'center' })),
+        btn('alignL', 'יישור לשמאל', it.align === 'left', () => set({ align: 'left' })),
+      );
+      const sw = h('<div class="swatches"></div>');
+      const colors = [{ hex: b.color, name: 'הצבע המקורי' }, ...INK_COLORS.filter((c) => c.hex.toLowerCase() !== b.color.toLowerCase())];
+      for (const c of colors) {
+        const x = h(`<button class="swatch" style="background:${c.hex}" title="${c.name}" aria-label="${c.name}" aria-pressed="${it.color.toLowerCase() === c.hex.toLowerCase()}"></button>`);
+        keepFocus(x);
+        x.onclick = () => set({ color: c.hex });
+        sw.append(x);
+      }
+      box.append(fontSeg, row, sw);
+      if (b.mixed) box.append(h('<p class="hint warn">בשורה הזו יש כמה סגנונות (למשל מילה מודגשת). אחרי עריכה כל השורה תיכתב בסגנון אחד.</p>'));
+      if (!b.ok) box.append(h('<p class="hint warn">הפונט של השורה הזו לא מאפשר מחיקה. בשמירה השורה הישנה תכוסה בצבע הרקע.</p>'));
+      const ch = editsOf(sel.key).find((x) => x.lineIdx === sel.idx);
+      if (ch) {
+        const r = h(`<button class="btn">${icon('revert')}החזרת השורה למקור</button>`);
+        r.onclick = () => revertEdit(sel.key, sel.idx);
+        box.append(h('<div class="btn-row"></div>'));
+        box.lastChild.append(r);
+      }
+    });
+  }
+
+  // כל השינויים במסמך
+  const all = [];
+  S.pages.forEach((p, i) => editsOf(p.key).forEach((it) => all.push({ p, i, it })));
+  const g = h(`<div class="group"><h2>שינויים במסמך${all.length ? ` (${all.length})` : ''}</h2></div>`);
+  if (!all.length) g.append(h('<p class="hint">עדיין לא נערכו שורות.</p>'));
+  else {
+    const ul = h('<ul class="tl-changes"></ul>');
+    for (const { p, i, it } of all) {
+      const li = h(`<li><button class="tl-go" title="מעבר לשורה"><span class="pg">עמ' ${i + 1}</span><span class="tx"></span></button><button class="icon-btn" title="החזרה למקור" aria-label="החזרה למקור">${icon('revert')}</button></li>`);
+      const tx = li.querySelector('.tx');
+      tx.textContent = it.text.trim() ? it.text : 'השורה נמחקה';
+      tx.dir = 'auto';
+      if (!it.text.trim()) tx.classList.add('gone');
+      li.querySelector('.tl-go').onclick = () => {
+        S.editSel = { key: p.key, idx: it.lineIdx };
+        if (frameCtx(p.key)) { frameCtx(p.key).frame.scrollIntoView({ block: 'center' }); refreshEdits(p.key); refreshEditPanel(); }
+        else goToPage(i);
+      };
+      li.querySelector('.icon-btn').onclick = () => revertEdit(p.key, it.lineIdx);
+      ul.append(li);
+    }
+    g.append(ul);
+  }
+  panel.append(g);
+  panel.append(h(`
+    <div class="group">
+      <h2>טוב לדעת</h2>
+      <p class="hint">עורכים שורה אחת בכל פעם. אם השורה החדשה ארוכה מהמקורית, הטקסט שאחריה לא זז. השורה נכתבת מחדש בפונט IBM Plex או Alef, בגודל ובצבע של המקור.</p>
+    </div>`));
+}
+
+function renderEdit() {
+  editPanel($('#panel'));
+  pageColumn();
 }
 
 function fieldValue(srcId, f) {
@@ -1347,6 +1704,7 @@ async function buildBytes(pages, opts = {}) {
   const redacted = pages.map((p, i) => [i, (S.stamps[p.key] || []).filter((it) => it.type === 'redact')]).filter(([, r]) => r.length);
   const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), S.stamps, S.formValues, {
     fonts: S.fonts,
+    editFonts: { plex: S.plexFonts || S.fonts, alef: S.fonts },
     // בהשחרה משטחים את הטפסים — אחרת הערכים נשארים בשדות שמתחת
     flattenForms: S.flattenForms || redacted.length > 0,
     watermark: ex.watermark.enabled ? ex.watermark : null,
@@ -1624,7 +1982,7 @@ function render() {
     else renderEmpty();
   } else {
     ({
-      view: renderView, pages: renderPages, sign: renderSign,
+      view: renderView, pages: renderPages, sign: renderSign, edit: renderEdit,
       forms: renderForms, windows: renderWindows,
     })[S.tool]();
   }
@@ -2327,8 +2685,10 @@ function wire() {
   wire();
   const [regular, bold] = await Promise.all([api.readAsset('fonts/Alef-Regular.ttf'), api.readAsset('fonts/Alef-Bold.ttf')]);
   S.fonts = { regular, bold };
+  // פונט ברירת המחדל לשורות שנערכות (Alef נשאר לחתימות ולטקסט חופשי)
+  api.readAsset('fonts/IBMPlexSansHebrew-Regular.ttf').then(async (r) => { S.plexFonts = { regular: r, bold: await api.readAsset('fonts/IBMPlexSansHebrew-Bold.ttf') }; });
   await Promise.all(savedSignatures().map(preloadRatio));
   render();
   api.rendererReady();
-  window.__app = { S, docs, D, render, setView, openInEditor, commit, saveDocument, buildBytes, activate }; // לבדיקות אוטומטיות
+  window.__app = { S, docs, D, render, setView, openInEditor, commit, saveDocument, buildBytes, activate, pageLines, undo, redo }; // לבדיקות אוטומטיות
 })();

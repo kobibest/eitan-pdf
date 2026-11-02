@@ -297,8 +297,18 @@ async function makeForm() {
     e.text = e.original;
     const out = await Ops.buildDocument({ s: src }, [{ src: 's', index: 0 }], { 's:0': [e] }, {}, { fonts, editFonts });
     const a = await PDFDocument.load(src), b = await PDFDocument.load(out);
-    const bytesOf = (d) => Buffer.from(P.decodePDFRawStream(d.context.lookup(d.getPage(0).node.get(P.PDFName.of('Contents')))).decode());
+    const bytesOf = (d) => {
+      const c = d.context.lookup(d.getPage(0).node.get(P.PDFName.of('Contents')));
+      const list = c instanceof P.PDFArray ? c.asArray().map((r) => d.context.lookup(r)) : [c];
+      return Buffer.concat(list.map((st) => Buffer.from(st instanceof P.PDFRawStream ? P.decodePDFRawStream(st).decode() : st.getContents())));
+    };
     assert.ok(bytesOf(a).equals(bytesOf(b)));
+    // שינוי עיצוב בלבד (בלי שינוי טקסט) כן מחליף את השורה
+    const r = await makeEdit(src, 0, 2, null);
+    Object.assign(r, { text: r.original, restyled: true, bold: true });
+    const out2 = await Ops.buildDocument({ s: src }, [{ src: 's', index: 0 }], { 's:0': [r] }, {}, { fonts, editFonts });
+    assert.ok(!bytesOf(await PDFDocument.load(out2)).equals(bytesOf(a)));
+    assert.ok((await linesOf(out2, 0)).some((l) => l.text === r.original));
   });
 
   await ok('עריכה: כמה שורות באותו עמוד, מחיקת שורה, וגיבוי לפונט לא נתמך', async () => {

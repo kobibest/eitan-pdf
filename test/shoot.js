@@ -32,6 +32,13 @@ app.whenReady().then(async () => {
     if (s.js) {
       try { await js(s.js); } catch (e) { errors.push('step error: ' + e.message); }
     }
+    if (s.clickSel) {
+      // לחיצה על אלמנט לפי סלקטור: { clickSel: '.x', nth: 0, at: [fx, fy] } (חלק יחסי מהמלבן)
+      const r = await js(`(() => { const el = document.querySelectorAll(${JSON.stringify(s.clickSel)})[${s.nth || 0}]; if (!el) return null; el.scrollIntoView({ block: 'center' }); const b = el.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; })()`);
+      if (!r) errors.push('clickSel not found: ' + s.clickSel);
+      else s.click = [Math.round(r[0] + r[2] * ((s.at || [0.5, 0.5])[0])), Math.round(r[1] + r[3] * ((s.at || [0.5, 0.5])[1]))];
+      await wait(200);
+    }
     if (s.click) {
       const [x, y] = s.click;
       win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
