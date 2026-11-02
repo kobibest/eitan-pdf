@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>איתןPDF — תוכנת PDF חינמית בעברית</title>
+<meta name="description" content="איתןPDF: תוכנה חינמית ל-Windows לעבודה עם PDF בעברית. צפייה, חתימה, מילוי טפסים, מיזוג, פיצול והשחרה. עובדת על המחשב, בלי אינטרנט ובלי להעלות קבצים.">
+<meta property="og:title" content="איתןPDF — PDF בעברית שלא מתהפכת">
+<meta property="og:description" content="תוכנה חינמית ל-Windows: חתימה, טפסים, מיזוג, פיצול והשחרה. הכל על המחשב שלכם.">
+<meta property="og:image" content="https://pdf.m-eitan.co.il/og.jpg">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0B2A82;
+    --navy-deep: #081E63;
+    --royal: #1E4FD6;
+    --royal-deep: #163BA8;
+    --wash: #E5EDFD;
+    --gold: #F5B227;
+    --desk: #DCE4F1;
+    --paper: #FFFFFF;
+    --ink: #14203A;
+    --ink-2: #48557A;
+    --ink-3: #7884A3;
+    --line: #CAD4E6;
+    --bad: #C23A2E;
+    --good: #2F7D5B;
+    --shadow: 0 1px 1px rgba(11,30,90,.10), 0 18px 40px -16px rgba(11,30,90,.38);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0;
+    font-family: 'IBM Plex Sans Hebrew', 'Segoe UI', system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--desk);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--royal); }
+  :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; border-radius: 4px; }
+  .wrap { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
+  bdi { unicode-bidi: isolate; }
+
+  /* ---------- כותרת עליונה ---------- */
+  .top { background: var(--navy); color: #fff; }
+  .top .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #fff; font-weight: 700; font-size: 20px; }
+  .brand img { width: 36px; height: 36px; }
+  .brand .pdf { color: var(--gold); }
+  .top nav { display: flex; gap: 26px; }
+  .top nav a { color: rgba(255,255,255,.82); text-decoration: none; font-weight: 500; font-size: 15px; }
+  .top nav a:hover { color: #fff; }
+
+  /* ---------- פתיח ---------- */
+  .hero { background: var(--navy); color: #fff; padding: 56px 0 0; overflow: hidden; }
+  .hero-grid { display: grid; grid-template-columns: 1fr; gap: 28px; text-align: center; justify-items: center; }
+  .hero h1 { margin: 0; font-size: clamp(36px, 6vw, 64px); line-height: 1.12; font-weight: 700; letter-spacing: -.01em; max-width: 16ch; }
+  .hero .lead { margin: 0; color: #C9D6F5; font-size: clamp(17px, 2vw, 20px); max-width: 56ch; }
+  .cta-row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    height: 54px; padding: 0 26px; border-radius: 12px;
+    font: inherit; font-weight: 700; font-size: 18px; text-decoration: none; cursor: pointer; border: 0;
+  }
+  .btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .btn-gold { background: var(--gold); color: var(--navy-deep); box-shadow: 0 6px 0 -1px #C98A10, 0 14px 28px -10px rgba(0,0,0,.45); }
+  .btn-gold:hover { background: #FFC23D; }
+  .btn-gold:active { transform: translateY(2px); box-shadow: 0 3px 0 -1px #C98A10; }
+  .btn-ghost { color: #fff; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.3); height: 54px; font-weight: 600; }
+  .btn-ghost:hover { background: rgba(255,255,255,.14); }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; color: #A9BBE8; font-size: 14px; margin: 0; padding: 0; list-style: none; }
+  .meta li { display: flex; align-items: center; gap: 6px; }
+  .meta svg { width: 16px; height: 16px; fill: none; stroke: var(--gold); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .shot {
+    margin-top: 18px; width: min(1060px, 100%);
+    border-radius: 14px 14px 0 0; overflow: hidden;
+    box-shadow: 0 -2px 0 rgba(255,255,255,.08), 0 30px 80px -20px rgba(0,0,0,.55);
+    border: 1px solid rgba(255,255,255,.12); border-bottom: 0;
+    background: #fff; line-height: 0;
+  }
+  .shot img { width: 100%; height: auto; display: block; }
+  img { max-width: 100%; }
+
+  /* ---------- הבעיה: עברית הפוכה ---------- */
+  section { padding: 88px 0; }
+  .sec-head { max-width: 720px; margin: 0 auto 44px; text-align: center; }
+  .sec-head h2 { margin: 0 0 12px; font-size: clamp(28px, 3.6vw, 40px); line-height: 1.2; }
+  .sec-head p { margin: 0; color: var(--ink-2); }
+  .flip { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; max-width: 900px; margin: 0 auto; }
+  .sheet { background: var(--paper); border-radius: 4px; box-shadow: var(--shadow); padding: 28px 30px 30px; position: relative; }
+  .sheet .tag { position: absolute; top: -13px; inset-inline-start: 24px; font-size: 13px; font-weight: 700; padding: 3px 12px; border-radius: 20px; color: #fff; }
+  .sheet.bad .tag { background: var(--bad); }
+  .sheet.good .tag { background: var(--good); }
+  .sheet .line { font-family: 'Alef', 'IBM Plex Sans Hebrew', sans-serif; font-size: 19px; padding: 9px 0; border-bottom: 1px solid #EEF1F7; }
+  .sheet .line:last-child { border-bottom: 0; }
+  .sheet.bad .line { color: #4a4f5c; }
+  .sheet .lbl { display: block; font-size: 12px; color: var(--ink-3); font-family: 'IBM Plex Sans Hebrew', sans-serif; direction: rtl; unicode-bidi: normal; text-align: right; }
+
+  /* ---------- יכולות ---------- */
+  .features { background: var(--paper); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .feat { padding: 26px 24px; border-radius: 14px; background: #F6F8FC; border: 1px solid #E3E9F4; }
+  .feat .ic { width: 46px; height: 46px; border-radius: 12px; background: var(--wash); display: grid; place-items: center; margin-bottom: 14px; }
+  .feat .ic svg { width: 24px; height: 24px; fill: none; stroke: var(--royal); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .feat h3 { margin: 0 0 6px; font-size: 19px; }
+  .feat p { margin: 0; color: var(--ink-2); font-size: 15.5px; line-height: 1.6; }
+  .feat.wide { grid-column: span 3; display: grid; grid-template-columns: 1.1fr 1fr; gap: 28px; align-items: center; background: var(--navy); color: #fff; border: 0; padding: 30px; }
+  .feat.wide p { color: #C9D6F5; }
+  .feat.wide .ic { background: rgba(255,255,255,.1); }
+  .feat.wide .ic svg { stroke: var(--gold); }
+  .feat.wide img { width: 100%; height: auto; border-radius: 10px; box-shadow: 0 20px 40px -18px rgba(0,0,0,.6); }
+
+  /* ---------- התקנה ---------- */
+  .steps { counter-reset: s; display: grid; gap: 22px; max-width: 900px; margin: 0 auto; list-style: none; padding: 0; }
+  .step { counter-increment: s; display: grid; grid-template-columns: 56px 1fr; gap: 20px; background: var(--paper); border-radius: 16px; padding: 26px 28px; box-shadow: var(--shadow); }
+  .step::before {
+    content: counter(s); width: 48px; height: 48px; border-radius: 50%;
+    display: grid; place-items: center; background: var(--navy); color: var(--gold);
+    font-weight: 700; font-size: 22px;
+  }
+  .step h3 { margin: 4px 0 6px; font-size: 21px; }
+  .step p { margin: 0 0 10px; color: var(--ink-2); }
+  .step p:last-child { margin-bottom: 0; }
+  .note { background: #FFF7E3; border: 1px solid #F2D79A; color: #6B4E0E; border-radius: 10px; padding: 12px 16px; font-size: 15px; margin-top: 14px; }
+  kbd { font-family: inherit; font-weight: 600; background: var(--wash); color: var(--royal-deep); border-radius: 6px; padding: 1px 8px; font-size: .95em; white-space: nowrap; }
+
+  /* דמה של חלונות האזהרה — כדי שיזהו אותם כשהם מופיעים */
+  .mock-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .mock { border-radius: 10px; overflow: hidden; font-family: 'Segoe UI', 'IBM Plex Sans Hebrew', sans-serif; font-size: 14px; line-height: 1.45; box-shadow: 0 10px 26px -14px rgba(11,30,90,.5); }
+  .mock figcaption { background: #F6F8FC; color: var(--ink-2); font-size: 13px; padding: 8px 14px; font-family: 'IBM Plex Sans Hebrew', sans-serif; border-top: 1px solid #E3E9F4; }
+  .ss { background: #0067B8; color: #fff; padding: 18px 20px 16px; direction: rtl; }
+  .ss b { display: block; font-size: 19px; font-weight: 600; margin-bottom: 8px; }
+  .ss .more { color: #fff; text-decoration: underline; font-weight: 600; }
+  .ss .btns { display: flex; justify-content: flex-start; gap: 8px; margin-top: 16px; }
+  .ss .btns span { border: 2px solid #fff; padding: 4px 18px; min-width: 96px; text-align: center; }
+  .ss .btns .hl { background: #fff; color: #0067B8; font-weight: 700; box-shadow: 0 0 0 3px var(--gold); }
+  .dl { background: #fff; color: #1f1f1f; padding: 14px 16px; direction: rtl; border: 1px solid #ddd; border-bottom: 0; }
+  .dl .row { display: flex; gap: 10px; align-items: flex-start; }
+  .dl .warn { width: 22px; height: 22px; border-radius: 50%; background: #F5C518; display: grid; place-items: center; font-weight: 800; flex: none; }
+  .dl .btns { display: flex; gap: 8px; margin-top: 12px; }
+  .dl .btns span { padding: 4px 12px; border-radius: 4px; border: 1px solid #c8c8c8; }
+  .dl .btns .hl { box-shadow: 0 0 0 3px var(--gold); border-color: #8a8a8a; font-weight: 600; }
+
+  /* ---------- שאלות ---------- */
+  .faq { background: var(--paper); }
+  .qa { max-width: 820px; margin: 0 auto; }
+  details { border-bottom: 1px solid #E3E9F4; padding: 6px 0; }
+  summary { cursor: pointer; list-style: none; font-weight: 600; font-size: 18px; padding: 14px 0; display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: '+'; font-weight: 400; font-size: 26px; color: var(--royal); line-height: 1; transition: transform .2s; }
+  details[open] summary::after { transform: rotate(45deg); }
+  details p { margin: 0 0 16px; color: var(--ink-2); max-width: 70ch; }
+
+  /* ---------- סיום ---------- */
+  .final { background: var(--navy); color: #fff; text-align: center; padding: 72px 0; }
+  .final h2 { margin: 0 0 10px; font-size: clamp(28px, 3.6vw, 40px); }
+  .final p { color: #C9D6F5; margin: 0 0 26px; }
+  footer { background: var(--navy-deep); color: #8FA3D6; font-size: 14px; padding: 22px 0; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  footer a { color: #C9D6F5; }
+  .foot-links { display: flex; gap: 18px; }
+
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr 1fr; }
+    .feat.wide { grid-column: span 2; grid-template-columns: 1fr; }
+    .flip, .mock-row { grid-template-columns: 1fr; }
+    .top nav { display: none; }
+  }
+  @media (max-width: 600px) {
+    section { padding: 64px 0; }
+    .grid { grid-template-columns: 1fr; }
+    .feat.wide { grid-column: span 1; }
+    .step { grid-template-columns: 1fr; padding: 22px 20px; }
+    .btn { width: 100%; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#" aria-label="איתןPDF, לראש העמוד"><img src="logo.png" alt="" width="36" height="36"><span>איתן<span class="pdf">PDF</span></span></a>
+    <nav aria-label="ניווט">
+      <a href="#features">יכולות</a>
+      <a href="#install">התקנה</a>
+      <a href="#faq">שאלות</a>
+      <a href="https://github.com/kobibest/eitan-pdf">קוד המקור</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero" aria-labelledby="h1">
+    <div class="wrap hero-grid">
+      <h1 id="h1">PDF בעברית שלא מתהפכת</h1>
+      <p class="lead">חתימה, מילוי טפסים, מיזוג, פיצול והשחרה. תוכנה חינמית ל-Windows שעובדת על המחשב שלכם, בלי אינטרנט ובלי להעלות קבצים לשום מקום.</p>
+      <div class="cta-row">
+        <a class="btn btn-gold" href="/download" data-dl>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+          הורדה חינמית ל-Windows
+        </a>
+        <a class="btn btn-ghost" href="#install">איך מתקינים</a>
+      </div>
+      <ul class="meta" aria-label="פרטי הגרסה">
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg><span data-version>הגרסה האחרונה</span></li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Windows 10 ו-11</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>חינם, בלי פרסומות ובלי הרשמה</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>קוד פתוח</li>
+      </ul>
+      <div class="shot"><img src="shot-sign.webp" alt="חלון התוכנה: טופס בקשה להחזר הוצאות ממולא בעברית, עם כלי חתימה וטקסט בצד" width="1440" height="872"></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-flip">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2 id="h-flip">ההבדל שרואים בשנייה</h2>
+        <p>רוב הכלים שכותבים לתוך PDF הופכים את העברית, או מתקנים אותה ומשאירים את המספרים הפוכים. איתןPDF מסדרת כל שורה לפני שהיא נכתבת לקובץ, כולל מספרים, סוגריים, טלפונים וניקוד.</p>
+      </div>
+      <div class="flip">
+        <div class="sheet bad" role="img" aria-label="דוגמה לטקסט עברי שהתהפך בתוכנה רגילה">
+          <span class="tag">תוכנה רגילה</span>
+          <div class="line"><span class="lbl">סכום</span>ח"ש 05.052,1</div>
+          <div class="line"><span class="lbl">טלפון</span>7654321-050 :ןופלט</div>
+          <div class="line"><span class="lbl">הערה</span>תלוש מקורי )נגל(</div>
+        </div>
+        <div class="sheet good">
+          <span class="tag">איתןPDF</span>
+          <div class="line"><span class="lbl">סכום</span>1,250.50 ש"ח</div>
+          <div class="line"><span class="lbl">טלפון</span>טלפון: 050-1234567</div>
+          <div class="line"><span class="lbl">הערה</span>תלוש מקורי (נגל)</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="features" id="features" aria-labelledby="h-feat">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2 id="h-feat">כל מה שעושים עם PDF במשרד</h2>
+        <p>כל קובץ נפתח בלשונית משלו. שומרים ישירות לקובץ, או בשם חדש.</p>
+      </div>
+      <div class="grid">
+        <article class="feat">
+          <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17c3-6 5-9 6-8.7 1.2.3-.8 6.6.4 6.8 1 .2 2.6-3.8 3.6-3.6.8.2.3 2.4 2 2.6 1 .1 2-1 3-2"/><path d="M3 21h18"/></svg></div>
+          <h3>חתימה</h3>
+          <p>מציירים עם העכבר או העט, מקלידים שם או מעלים תמונה. החתימה נשמרת לפעם הבאה, רק במחשב שלכם.</p>
+        </article>
+        <article class="feat">
+          <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h4"/></svg></div>
+          <h3>מילוי טפסים</h3>
+          <p>ממלאים ישירות על הדף, בעברית תקינה. אפשר לנעול את הטופס בשמירה כך שלא יהיה ניתן לשנות.</p>
+        </article>
+        <article class="feat">
+          <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg></div>
+          <h3>טקסט, תאריך וחותמת</h3>
+          <p>מוסיפים טקסט בכל מקום בדף, בגודל ובצבע שבוחרים. תאריך בלחיצה, וחותמת מתמונה.</p>
+        </article>
+        <article class="feat">
+          <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h6l3 3v8H5z"/><path d="M10 10h6l3 3v8h-9z"/></svg></div>
+          <h3>מיזוג וסידור</h3>
+          <p>מאחדים כמה קבצים לאחד, גוררים עמודים לסדר הרצוי, מסובבים, משכפלים ומוחקים.</p>
+        </article>
+        <article class="feat">
+          <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 8.1 20 20M8.1 15.9 20 4"/></svg></div>
+          <h3>פיצול</h3>
+          <p>כל עמוד לקובץ, כל כמה עמודים, לפי טווחים, או בלחיצה על המספריים בין עמודים.</p>
+        </article>
+        <article class="feat">
+          <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor" stroke="none"/><path d="M3 5h8M3 19h12"/></svg></div>
+          <h3>השחרה אמיתית</h3>
+          <p>מוחקת לצמיתות את מה שמתחת, לא רק מכסה בריבוע שחור. מתאים לתעודות זהות, תלושים ומסמכים רגישים.</p>
+        </article>
+        <article class="feat wide">
+          <div>
+            <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/></svg></div>
+            <h3>משתלבת ב-Windows</h3>
+            <p>קליק ימני על קבצי PDF בסייר: פתיחה, מיזוג או פיצול בלי לפתוח את התוכנה קודם. ואם רוצים, תמונה ממוזערת של העמוד הראשון במקום אייקון. כל אלה מופעלים בלחיצה אחת מתוך התוכנה.</p>
+          </div>
+          <img src="shot-pages.webp" alt="מסך העמודים: שלושה קבצים ממוזגים, כל עמוד מסומן בלשונית בצבע הקובץ שלו" width="1440" height="872" loading="lazy">
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" aria-labelledby="h-inst">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2 id="h-inst">התקנה בשלושה צעדים</h2>
+        <p>לא צריך הרשאות מנהל. Windows ידפדף אתכם דרך אזהרה אחת או שתיים, וכאן מוסבר בדיוק על מה לוחצים.</p>
+      </div>
+      <ol class="steps">
+        <li class="step">
+          <div>
+            <h3>מורידים את קובץ ההתקנה</h3>
+            <p><a href="/download" data-dl>הורדת איתןPDF</a> (<span data-size>כ-115MB</span>). הקובץ נקרא <bdi dir="ltr">EitanPDF-Setup-x64.exe</bdi>.</p>
+            <p>הדפדפן עשוי להזהיר שהקובץ "לא מוכר" או "לא מורד בדרך כלל", כי זו תוכנה חדשה שעדיין לא הורידו הרבה אנשים. כך ממשיכים:</p>
+            <div class="mock-row">
+              <figure class="mock">
+                <div class="dl"><div class="row"><span class="warn">!</span><div>הקובץ EitanPDF-Setup-x64.exe לא מורד בדרך כלל. ודא שאתה סומך על הקובץ לפני שתפתח אותו.</div></div>
+                  <div class="btns"><span>מחק</span><span class="hl">⋯ ואז "שמור"</span></div></div>
+                <figcaption>ב-Edge: לוחצים על שלוש הנקודות, "שמור", ואז "שמור בכל זאת"</figcaption>
+              </figure>
+              <figure class="mock">
+                <div class="dl"><div class="row"><span class="warn">!</span><div>הקובץ הזה לא מורד בדרך כלל ויכול להיות מסוכן.</div></div>
+                  <div class="btns"><span>מחיקה</span><span class="hl">שמירה</span></div></div>
+                <figcaption>ב-Chrome: לוחצים "שמירה" (או "שמירה בכל זאת")</figcaption>
+              </figure>
+            </div>
+          </div>
+        </li>
+        <li class="step">
+          <div>
+            <h3>פותחים את הקובץ, ועוברים את המסך הכחול</h3>
+            <p>בפעם הראשונה Windows יציג חלון כחול: "Windows הגן על המחשב שלך". זה קורה לכל תוכנה שלא נרכשה לה חתימה דיגיטלית בתשלום, ולא אומר שמשהו לא תקין.</p>
+            <div class="mock-row">
+              <figure class="mock">
+                <div class="ss"><b>Windows הגן על המחשב שלך</b>
+                  Microsoft Defender SmartScreen מנע הפעלה של אפליקציה לא מוכרת. הפעלת האפליקציה עלולה לסכן את המחשב שלך.<br><span class="more">מידע נוסף</span>
+                  <div class="btns"><span>אל תפעיל</span></div></div>
+                <figcaption>שלב א: לוחצים על "מידע נוסף" (קישור קטן מתחת לטקסט)</figcaption>
+              </figure>
+              <figure class="mock">
+                <div class="ss"><b>Windows הגן על המחשב שלך</b>
+                  אפליקציה: EitanPDF-Setup-x64.exe<br>מפרסם: מפרסם לא ידוע
+                  <div class="btns"><span class="hl">הפעל בכל זאת</span><span>אל תפעיל</span></div></div>
+                <figcaption>שלב ב: מופיע הכפתור "הפעל בכל זאת", ולוחצים עליו</figcaption>
+              </figure>
+            </div>
+            <p class="note">ב-Windows באנגלית הכפתורים נקראים <kbd>More info</kbd> ו-<kbd>Run anyway</kbd>. אם בחלון אין כלל כפתור "הפעל בכל זאת", ייתכן שמנהל הרשת בארגון חוסם תוכנות לא מוכרות, ואז צריך לפנות אליו.</p>
+          </div>
+        </li>
+        <li class="step">
+          <div>
+            <h3>לוחצים "הבא" ו"סיום"</h3>
+            <p>ההתקנה לוקחת כחצי דקה. בסוף התוכנה נפתחת, ויש לה קיצור דרך בתפריט התחל ועל שולחן העבודה.</p>
+            <p>רוצים קליק ימני על PDF בסייר, או תמונות ממוזערות? בתוכנה לוחצים על <kbd>שילוב ב-Windows</kbd> בתחתית הסרגל הימני.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="faq" id="faq" aria-labelledby="h-faq">
+    <div class="wrap">
+      <div class="sec-head"><h2 id="h-faq">שאלות שעולות</h2></div>
+      <div class="qa">
+        <details>
+          <summary>האם הקבצים שלי נשלחים לאנשהו?</summary>
+          <p>לא. כל העבודה נעשית על המחשב שלכם, והתוכנה בכלל לא מתחברת לאינטרנט. אפשר לנתק את הרשת ולהמשיך לעבוד כרגיל.</p>
+        </details>
+        <details>
+          <summary>למה Windows מזהיר ממנה?</summary>
+          <p>Windows מזהיר מכל תוכנה שאין לה חתימה דיגיטלית בתשלום ושעוד לא הורידו הרבה אנשים. איתןPDF בקוד פתוח, וכל אחד יכול לקרוא את הקוד שלה ב-GitHub ולבנות אותה בעצמו.</p>
+        </details>
+        <details>
+          <summary>איך מעדכנים לגרסה חדשה?</summary>
+          <p>מורידים מכאן את קובץ ההתקנה העדכני ומתקינים. הוא מעדכן את הגרסה הקיימת באותו מקום, והחתימות וההגדרות השמורות נשארות.</p>
+        </details>
+        <details>
+          <summary>האם ההשחרה באמת מוחקת?</summary>
+          <p>כן. עמוד עם השחרה נשמר מחדש כתמונה, והמלבנים השחורים צרובים בה. הטקסט המקורי של אותו עמוד לא נשאר בקובץ בשום צורה, גם לא מוסתר. החיסרון: טקסט אחר באותו עמוד כבר לא ניתן לבחירה או לחיפוש. שאר העמודים לא משתנים.</p>
+        </details>
+        <details>
+          <summary>זה עולה כסף? יש מגבלות?</summary>
+          <p>לא ולא. אין גרסת פרו, אין סימן מים של התוכנה ואין הגבלה על מספר הקבצים.</p>
+        </details>
+        <details>
+          <summary>איך מסירים את התוכנה?</summary>
+          <p>הגדרות, ואז "אפליקציות", מחפשים איתןPDF ולוחצים "הסר התקנה". ההסרה מנקה גם את הקליק הימני והתמונות הממוזערות, אם הפעלתם אותם.</p>
+        </details>
+        <details>
+          <summary>יש גרסה ל-Mac?</summary>
+          <p>כרגע רק ל-Windows 10 ו-11 (64 ביט). במחשבים עם מעבד ARM ב-Windows 11 היא רצה דרך האמולציה המובנית.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="final" aria-labelledby="h-final">
+    <div class="wrap">
+      <h2 id="h-final">מוכנים לנסות?</h2>
+      <p>הורדה אחת, התקנה של חצי דקה, ואתם עובדים.</p>
+      <a class="btn btn-gold" href="/download" data-dl>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        הורדה חינמית ל-Windows
+      </a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>איתןPDF נבנתה על ידי <a href="https://m-eitan.co.il">קובי איתן</a>. קוד פתוח ברישיון MIT.</span>
+    <span class="foot-links"><a href="https://github.com/kobibest/eitan-pdf">GitHub</a><a href="https://github.com/kobibest/eitan-pdf/releases">כל הגרסאות</a><a href="mailto:kobi@eitan-m.co.il">יצירת קשר</a></span>
+  </div>
+</footer>
+
+<script>
+  // הגרסה והגודל נמשכים מהגרסה האחרונה בריפו. אם GitHub לא זמין — הקישור /download עדיין עובד.
+  (async () => {
+    try {
+      const r = await fetch('https://api.github.com/repos/kobibest/eitan-pdf/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
+      if (!r.ok) return;
+      const rel = await r.json();
+      const asset = (rel.assets || []).find((a) => a.name === 'EitanPDF-Setup-x64.exe');
+      const v = String(rel.tag_name || '').replace(/^v/, '');
+      if (v) document.querySelectorAll('[data-version]').forEach((n) => (n.textContent = 'גרסה ' + v));
+      if (asset) {
+        const mb = Math.round(asset.size / 1048576);
+        document.querySelectorAll('[data-size]').forEach((n) => (n.textContent = mb + 'MB'));
+        document.querySelectorAll('[data-dl]').forEach((a) => (a.href = asset.browser_download_url));
+      }
+    } catch (e) { /* נשארים עם /download */ }
+  })();
+</script>
+</body>
+</html>
