@@ -367,7 +367,7 @@
     }
     if (o.watermark && o.watermark.text) applyWatermark(doc, fonts, o.watermark);
     if (o.pageNumbers && o.pageNumbers.enabled) applyPageNumbers(doc, fonts, o.pageNumbers);
-    doc.setProducer('PDF עברית — תוכנה חינמית ומקומית');
+    doc.setProducer('איתןPDF');
     return doc.save();
   }
 

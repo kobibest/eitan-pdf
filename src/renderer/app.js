@@ -1,4 +1,4 @@
-// PDF עברית — ממשק
+// איתןPDF — ממשק
 import * as pdfjsLib from '../../node_modules/pdfjs-dist/build/pdf.min.mjs';
 
 const { PdfOps: Ops } = window;
@@ -50,6 +50,7 @@ const ICONS = {
   zoomOut: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4M8.5 11h5"/>',
   fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   check: '<path d="m5 12 4.5 4.5L19 7"/>',
+  redact: '<rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor" stroke="none"/><path d="M3 5h8M3 19h12"/>',
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
@@ -68,11 +69,8 @@ const INK_COLORS = [
 const TOOLS = [
   { id: 'view', label: 'צפייה', icon: 'eye', doc: true, panel: false },
   { id: 'pages', label: 'עמודים', icon: 'grid', doc: true },
-  { id: 'merge', label: 'מיזוג', icon: 'merge', doc: true },
-  { id: 'split', label: 'פיצול', icon: 'scissors', doc: true },
   { id: 'sign', label: 'טקסט וחתימה', icon: 'sign', doc: true },
   { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
-  { id: 'extras', label: 'סימן מים ומספור', icon: 'stamp', doc: true },
   { id: 'folder', label: 'תיקייה', icon: 'folder', doc: false },
   { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true },
 ];
@@ -121,7 +119,21 @@ const S = {
   folder: localStore('folder') || null,
   fonts: null,
   pendingImage: null,
+  pagesMode: 'arrange', // בתוך "עמודים": סידור / מיזוג / פיצול / סימן מים ומספור
 };
+const PAGES_MODES = [
+  { id: 'arrange', label: 'סידור' },
+  { id: 'merge', label: 'מיזוג' },
+  { id: 'split', label: 'פיצול' },
+  { id: 'extras', label: 'סימן מים' },
+];
+/** כלים ישנים (מיזוג/פיצול/סימון) הם עכשיו מצבים בתוך "עמודים" */
+function normalizeTool(t) {
+  if (t === 'merge' || t === 'split' || t === 'extras') { S.pagesMode = t; return 'pages'; }
+  return t;
+}
+const inMerge = () => S.tool === 'pages' && S.pagesMode === 'merge';
+const inGrid = () => S.tool === 'pages' && (S.pagesMode === 'arrange' || S.pagesMode === 'merge');
 const EMPTY = { sources: new Map(), pages: [], stamps: {}, formValues: {}, selected: new Set(), split: { mode: 'each', every: 2, ranges: '', cuts: new Set() }, extras: { watermark: {}, pageNumbers: {} } };
 for (const k of ['sources', 'pages', 'stamps', 'formValues', 'selected', 'lastClicked', 'split', 'extras', 'flattenForms']) {
   Object.defineProperty(S, k, {
@@ -248,7 +260,7 @@ async function addImages() {
     const bytes = await Ops.imagesToPdf(imgs.map((i) => ({ bytes: i.bytes })));
     const name = imgs.length === 1 ? baseName(imgs[0].name.replace(/\.(png|jpe?g)$/i, '')) + '.pdf' : `תמונות (${imgs.length}).pdf`;
     return { name, bytes };
-  }).then((entry) => (S.tool === 'merge' && D() ? addPdf(entry).then(render) : openEntries([entry])));
+  }).then((entry) => (inMerge() && D() ? addPdf(entry).then(render) : openEntries([entry])));
 }
 
 function addBlank() {
@@ -587,9 +599,40 @@ function editorPage(p, i, maxW) {
     // מונעים מהדפדפן להעביר פוקוס אחרי הלחיצה — אחרת תיבת הטקסט החדשה מאבדת פוקוס ונמחקת
     e.preventDefault();
     const r = overlay.getBoundingClientRect();
+    if (S.placing === 'redact') return drawRedaction(ctx, e, r);
     placeItem(ctx, (e.clientX - r.left) / ctx.scale, (e.clientY - r.top) / ctx.scale);
   });
   return frame;
+}
+
+/** השחרה: גוררים מלבן על האזור שצריך להימחק */
+function drawRedaction(ctx, e, r) {
+  const { overlay } = ctx;
+  const x0 = (e.clientX - r.left) / ctx.scale, y0 = (e.clientY - r.top) / ctx.scale;
+  const ghost = h('<div class="item kind-redact drawing"><div class="redact-fill"></div></div>');
+  overlay.append(ghost);
+  let box = { x: x0, y: y0, w: 0, h: 0 };
+  const move = (ev) => {
+    const x1 = Math.max(0, Math.min(ctx.vw, (ev.clientX - r.left) / ctx.scale));
+    const y1 = Math.max(0, Math.min(ctx.vh, (ev.clientY - r.top) / ctx.scale));
+    box = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+    Object.assign(ghost.style, { left: box.x * ctx.scale + 'px', top: box.y * ctx.scale + 'px', width: box.w * ctx.scale + 'px', height: box.h * ctx.scale + 'px' });
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    ghost.remove();
+    // לחיצה בלי גרירה — מלבן בגודל שורת טקסט
+    if (box.w < 6 || box.h < 4) box = { x: Math.max(0, x0 - 80), y: Math.max(0, y0 - 9), w: 160, h: 18 };
+    const id = 'i' + seq++;
+    commit(() => {
+      (S.stamps[ctx.p.key] = S.stamps[ctx.p.key] || []).push({ id, type: 'redact', ...box });
+      S.activeItem = { key: ctx.p.key, id };
+      // נשארים בכלי ההשחרה — בדרך כלל משחירים כמה אזורים ברצף
+    });
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
 }
 
 function placeItem(ctx, x, y) {
@@ -709,6 +752,8 @@ function itemEl(ctx, it) {
     el.append(ta);
   } else if (it.type === 'image') {
     el.append(h(`<img alt="" src="${it.image}">`));
+  } else if (it.type === 'redact') {
+    el.append(h('<div class="redact-fill" title="השחרה: התוכן מתחת יימחק בשמירה"></div>'));
   } else if (it.type === 'rect') {
     const f = h('<div class="rect-fill"></div>');
     f.style.background = it.color;
@@ -741,7 +786,7 @@ function itemEl(ctx, it) {
         it.x = ox + (ow - nw);
         it.w = nw;
         if (it.type === 'image') it.h = nw * (oh / ow);
-        else if (it.type === 'rect') it.h = Math.max(8, oh + dy);
+        else if (it.type === 'rect' || it.type === 'redact') it.h = Math.max(4, oh + dy);
       }
       el.style.left = it.x * ctx.scale + 'px';
       el.style.top = it.y * ctx.scale + 'px';
@@ -759,7 +804,7 @@ function itemEl(ctx, it) {
   };
   grip.addEventListener('pointerdown', (e) => startDrag(e, 'move'));
   resize.addEventListener('pointerdown', (e) => startDrag(e, 'resize'));
-  if (it.type !== 'text') el.addEventListener('pointerdown', (e) => { if (e.target === el || e.target.tagName === 'IMG' || e.target.classList.contains('rect-fill')) startDrag(e, 'move'); });
+  if (it.type !== 'text') el.addEventListener('pointerdown', (e) => { if (e.target === el || e.target.tagName === 'IMG' || e.target.classList.contains('rect-fill') || e.target.classList.contains('redact-fill')) startDrag(e, 'move'); });
   return el;
 }
 
@@ -1211,7 +1256,7 @@ function renderExtras() {
         <label class="check"><input type="checkbox" data-p="skipFirst" ${pn.skipFirst ? 'checked' : ''}><span>בלי מספר בעמוד הראשון (שער)</span></label>
       </div>
     </div>`);
-  const g3 = h('<div class="group"><p class="hint">ההגדרות יחולו על הקובץ כשתלחצו "שמירת PDF". התצוגה משמאל מראה את העמודים הראשונים.</p></div>');
+  const g3 = h('<div class="group"><p class="hint">ההגדרות יחולו על הקובץ בשמירה. התצוגה משמאל מראה את העמודים הראשונים.</p></div>');
   panel.append(g1, g2, g3);
 
   const preview = h('<div class="preview-wrap"></div>');
@@ -1356,22 +1401,68 @@ async function buildBytes(pages, opts = {}) {
   for (const s of S.sources.values()) sources[s.id] = s.bytes;
   const ex = S.extras;
   const warnings = [];
+  const redacted = pages.map((p, i) => [i, (S.stamps[p.key] || []).filter((it) => it.type === 'redact')]).filter(([, r]) => r.length);
   const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), S.stamps, S.formValues, {
     fonts: S.fonts,
-    flattenForms: S.flattenForms,
+    // בהשחרה משטחים את הטפסים — אחרת הערכים נשארים בשדות שמתחת
+    flattenForms: S.flattenForms || redacted.length > 0,
     watermark: ex.watermark.enabled ? ex.watermark : null,
     pageNumbers: ex.pageNumbers.enabled ? { ...ex.pageNumbers, total: opts.totalOverride } : null,
     onWarning: (w) => warnings.push(w),
   });
   if (warnings.length) toast(warnings[0], { error: true });
-  return out;
+  if (!redacted.length) return out;
+  return applyRedactions(out, redacted);
+}
+
+/**
+ * השחרה אמיתית: כל עמוד עם השחרה מצויר מחדש כתמונה (200 DPI) עם המלבנים השחורים,
+ * ומחליף את העמוד המקורי. בסוף כל המסמך מועתק לקובץ חדש, כך שהתוכן המקורי של
+ * העמודים שהוחלפו (טקסט, תמונות, שכבות, הערות) לא נשאר בקובץ אפילו כאובייקט נסתר.
+ */
+async function applyRedactions(bytes, redacted) {
+  const { PDFDocument } = window.PDFLib;
+  const pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: bytes.slice() }).promise;
+  const doc = await PDFDocument.load(bytes);
+  const DPI = 200;
+  try {
+    for (const [idx, boxes] of redacted) {
+      const pg = await pdf.getPage(idx + 1);
+      const vp = pg.getViewport({ scale: DPI / 72, rotation: pg.rotate });
+      const c = document.createElement('canvas');
+      c.width = Math.ceil(vp.width);
+      c.height = Math.ceil(vp.height);
+      const ctx2d = c.getContext('2d');
+      ctx2d.fillStyle = '#fff';
+      ctx2d.fillRect(0, 0, c.width, c.height);
+      await pg.render({ canvasContext: ctx2d, viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE }).promise;
+      ctx2d.fillStyle = '#000';
+      const k = DPI / 72;
+      for (const b of boxes) ctx2d.fillRect(Math.floor(b.x * k), Math.floor(b.y * k), Math.ceil(b.w * k) + 1, Math.ceil(b.h * k) + 1);
+      const jpg = await new Promise((res) => c.toBlob((bl) => bl.arrayBuffer().then((a) => res(new Uint8Array(a))), 'image/jpeg', 0.9));
+      const img = await doc.embedJpg(jpg);
+      const w = vp.width / k, hgt = vp.height / k;
+      const np = doc.insertPage(idx, [w, hgt]);
+      np.drawImage(img, { x: 0, y: 0, width: w, height: hgt });
+      doc.removePage(idx + 1);
+      c.width = c.height = 0;
+    }
+  } finally {
+    pdf.destroy();
+  }
+  // העתקה למסמך נקי: רק מה שנגיש מהעמודים עובר. שאריות העמודים המקוריים נשמטות
+  const clean = await PDFDocument.create();
+  const copied = await clean.copyPages(doc, doc.getPageIndices());
+  copied.forEach((p) => clean.addPage(p));
+  clean.setProducer('איתןPDF');
+  return clean.save();
 }
 
 async function about() {
   const v = await api.appVersion();
   const back = h(`
     <div class="modal-back"><div class="modal about" role="dialog" aria-modal="true" aria-labelledby="ab-t" style="width:min(460px,100%)">
-      <header><h2 id="ab-t">PDF עברית</h2><button class="icon-btn" aria-label="סגירה">${icon('x')}</button></header>
+      <header><h2 id="ab-t">איתןPDF</h2><button class="icon-btn" aria-label="סגירה">${icon('x')}</button></header>
       <div class="body">
         <p class="ver">גרסה ${esc(v)}</p>
         <p>תוכנה חינמית בקוד פתוח לעבודה עם קבצי PDF בעברית. כל העיבוד נעשה על המחשב שלכם, בלי אינטרנט ובלי להעלות קבצים.</p>
@@ -1506,7 +1597,7 @@ function activate(id, tool) {
   const cur = D();
   if (cur) cur.scroll = $('#desk').scrollTop;
   activeId = id;
-  if (tool) S.tool = tool;
+  if (tool) S.tool = normalizeTool(tool);
   S.placing = null;
   S.activeItem = null;
   render();
@@ -1590,8 +1681,8 @@ function render() {
     else renderEmpty();
   } else {
     ({
-      view: renderView, pages: renderPages, merge: renderMerge, split: renderSplit, sign: renderSign,
-      forms: renderForms, extras: renderExtras, folder: renderFolder, windows: renderWindows,
+      view: renderView, pages: renderPages, sign: renderSign,
+      forms: renderForms, folder: renderFolder, windows: renderWindows,
     })[S.tool]();
   }
   desk.scrollTop = keepScroll;
@@ -1604,11 +1695,12 @@ function updateChrome() {
   $('#btn-saveas').disabled = !d || !d.pages.length;
   $('#btn-undo').disabled = !d || !d.undo.length;
   $('#btn-redo').disabled = !d || !d.redo.length;
-  document.title = d ? `${d.title}${d.dirty ? ' •' : ''} — PDF עברית` : 'PDF עברית';
+  document.title = d ? `${d.title}${d.dirty ? ' •' : ''} — איתןPDF` : 'איתןPDF';
 }
 
 function setView(v) {
-  if (S.tool === v) return;
+  v = normalizeTool(v);
+  if (S.tool === v) { render(); return; }
   const cur = D();
   if (cur) cur.scroll = 0;
   S.tool = v;
@@ -1703,12 +1795,12 @@ function pageGrid() {
   wireReorder(grid);
 }
 
-function renderPages() {
+function renderArrange() {
   const panel = $('#panel');
   const sel = S.selected.size;
   const pg = h(`
     <div class="group">
-      <h2>עמודים</h2>
+      <h2>פעולות על עמודים</h2>
       <p class="hint">${sel ? `נבחרו ${plural(sel, 'עמוד אחד', 'עמודים')}.` : 'לחיצה בוחרת עמוד, Ctrl או Shift בוחרים כמה. גוררים כדי לשנות סדר, לחיצה כפולה פותחת את העמוד.'}</p>
       <div class="tool-grid">
         <button class="tool" data-a="rotR" ${sel ? '' : 'disabled'}>${icon('rotR')}סיבוב ימינה</button>
@@ -1727,6 +1819,18 @@ function renderPages() {
   pg.querySelector('[data-a=extract]').onclick = () => saveAs({ onlySelected: true });
   panel.append(pg);
   pageGrid();
+}
+
+function renderPages() {
+  const panel = $('#panel');
+  const seg = h('<div class="segmented pages-modes" role="tablist" aria-label="פעולות על עמודים"></div>');
+  for (const m of PAGES_MODES) {
+    const b = h(`<button role="tab" aria-pressed="${S.pagesMode === m.id}" aria-selected="${S.pagesMode === m.id}">${m.label}</button>`);
+    b.onclick = () => { if (S.pagesMode !== m.id) { S.pagesMode = m.id; S.selected.clear(); $('#desk').scrollTop = 0; render(); } };
+    seg.append(b);
+  }
+  panel.append(seg);
+  ({ arrange: renderArrange, merge: renderMerge, split: renderSplit, extras: renderExtras })[S.pagesMode]();
 }
 
 function renderMerge() {
@@ -1806,12 +1910,13 @@ function signTools() {
   const tools = h(`
     <div class="group">
       <h2>הוספה לעמוד</h2>
-      <p class="hint">${S.placing ? 'לחצו על המקום בעמוד שבו זה צריך להופיע. Esc לביטול.' : 'בוחרים כלי ולוחצים על המקום הרצוי בעמוד.'}</p>
+      <p class="hint">${S.placing === 'redact' ? 'גררו מלבן על מה שצריך להימחק. אפשר לסמן כמה אזורים ברצף. Esc לסיום.' : S.placing ? 'לחצו על המקום בעמוד שבו זה צריך להופיע. Esc לביטול.' : 'בוחרים כלי ולוחצים על המקום הרצוי בעמוד.'}</p>
       <div class="tool-grid">
         <button class="tool" data-t="text" aria-pressed="${S.placing === 'text'}">${icon('text')}טקסט</button>
         <button class="tool" data-t="signature" aria-pressed="${S.placing === 'signature'}">${icon('sign')}חתימה</button>
         <button class="tool" data-t="date" aria-pressed="${S.placing === 'date'}">${icon('date')}תאריך<small>${todayStr()}</small></button>
-        <button class="tool" data-t="rect" aria-pressed="${S.placing === 'rect'}">${icon('erase')}כיסוי לבן<small>מסתיר תוכן קיים</small></button>
+        <button class="tool" data-t="redact" aria-pressed="${S.placing === 'redact'}">${icon('redact')}השחרה<small>מוחקת לצמיתות</small></button>
+        <button class="tool" data-t="rect" aria-pressed="${S.placing === 'rect'}">${icon('erase')}כיסוי לבן<small>מסתיר בלבד</small></button>
         <button class="tool" data-t="image" aria-pressed="${S.placing === 'image'}">${icon('image')}תמונה או חותמת</button>
       </div>
     </div>`);
@@ -1936,13 +2041,13 @@ async function renderWindows() {
   };
   cards.append(
     card('context', 'קליק ימני על קבצי PDF',
-      'בלחיצה ימנית על קובץ PDF אחד או כמה יופיעו "פתיחה", "מיזוג" ו"פיצול" ב-PDF עברית. מסמנים כמה קבצים ובוחרים "מיזוג" כדי לאחד אותם.',
+      'בלחיצה ימנית על קובץ PDF אחד או כמה יופיעו "פתיחה", "מיזוג" ו"פיצול" באיתןPDF. מסמנים כמה קבצים ובוחרים "מיזוג" כדי לאחד אותם.',
       st.context, 'ב-Windows 11 הפעולות נמצאות תחת "הצגת אפשרויות נוספות".'),
     card('thumbs', 'תמונות ממוזערות בסייר הקבצים',
       'הסייר יציג את העמוד הראשון של כל קובץ PDF במקום אייקון, בתצוגת "סמלים גדולים".',
       st.thumbs, 'ניסיוני. אם תוכנה אחרת כבר מציגה תמונות ממוזערות ל-PDF, ההגדרה הזו תחליף אותה. לפעמים צריך לנקות את מטמון התמונות של Windows (ניקוי דיסק) כדי לראות את השינוי.'),
     card('default', 'פתיחת PDF בתוכנה הזו',
-      'מוסיף את PDF עברית לרשימת "פתח באמצעות". Windows לא מאפשר לתוכנות לקבוע את עצמן כברירת מחדל, לכן אחרי ההפעלה ייפתח חלון ההגדרות של Windows ושם בוחרים בה.',
+      'מוסיף את איתןPDF לרשימת "פתח באמצעות". Windows לא מאפשר לתוכנות לקבוע את עצמן כברירת מחדל, לכן אחרי ההפעלה ייפתח חלון ההגדרות של Windows ושם בוחרים בה.',
       st.default, null),
   );
   if (st.installedPath) wrap.append(h(`<p class="hint install-note">כדי שהשילוב ימשיך לעבוד גם אם הקובץ שהורדתם יימחק, התוכנה הועתקה אל <bdi dir="ltr">${esc(st.installedPath)}</bdi>.</p>`));
@@ -2033,7 +2138,7 @@ function wire() {
     else if (cmd === 'close-tab') { if (activeId) closeTab(activeId); }
     else if (cmd === 'undo') { if (!isTyping()) undo(); else document.execCommand('undo'); }
     else if (cmd === 'redo') { if (!isTyping()) redo(); else document.execCommand('redo'); }
-    else if (cmd === 'select-all') { if (isTyping()) document.execCommand('selectAll'); else if (S.tool === 'pages' || S.tool === 'merge') selectAll(); }
+    else if (cmd === 'select-all') { if (isTyping()) document.execCommand('selectAll'); else if (inGrid()) selectAll(); }
     else if (cmd === 'zoom-in' || cmd === 'zoom-out' || cmd === 'zoom-fit') {
       if (PAGE_COLUMN_TOOLS.has(S.tool)) zoom(cmd === 'zoom-in' ? 'in' : cmd === 'zoom-out' ? 'out' : 'fit');
       else {
@@ -2073,7 +2178,7 @@ function wire() {
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (PAGE_COLUMN_TOOLS.has(S.tool) && S.activeItem) { e.preventDefault(); deleteActiveItem(); }
-      else if ((S.tool === 'pages' || S.tool === 'merge') && S.selected.size) { e.preventDefault(); deleteSelected(); }
+      else if (inGrid() && S.selected.size) { e.preventDefault(); deleteSelected(); }
     } else if (e.key === 'Escape') {
       if (S.placing) { S.placing = null; render(); }
       else if (S.activeItem) { S.activeItem = null; refreshItems(); }
@@ -2105,7 +2210,7 @@ function wire() {
     }
     if (!entries.length) return toast('אפשר לגרור לכאן רק קבצי PDF או תמונות (PNG, JPG)', { error: true });
     // גרירה למצב מיזוג — מוסיפים למסמך הפעיל. אחרת — לשוניות חדשות
-    if (S.tool === 'merge' && D()) {
+    if (inMerge() && D()) {
       await busy('מוסיף קבצים…', async () => { for (const en of entries) await addPdf(en); });
       render();
     } else await openEntries(entries);
