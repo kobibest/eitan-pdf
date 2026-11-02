@@ -92,6 +92,18 @@ async function makeForm() {
     fs.writeFileSync(path.join(OUT, 'stamps.pdf'), out);
   });
 
+  await ok('סימון V / X בעמוד רגיל ובעמוד מסובב', async () => {
+    const marks = [
+      { type: 'mark', shape: 'check', x: 60, y: 60, w: 16, h: 16, color: '#1B2430' },
+      { type: 'mark', shape: 'x', x: 100, y: 60, w: 16, h: 16, color: '#C23A2E' },
+      { type: 'mark', shape: 'check', x: 140, y: 50, w: 40, h: 40, color: '#1F35B5' },
+    ];
+    const pages = [{ src: 'a', index: 0 }, { src: 'a', index: 1, rotate: 90 }];
+    const out = await Ops.buildDocument({ a }, pages, { 'a:0': marks, 'a:1': marks.map((m) => ({ ...m })) }, {}, { fonts });
+    assert.strictEqual((await PDFDocument.load(out)).getPageCount(), 2);
+    fs.writeFileSync(path.join(OUT, 'marks.pdf'), out);
+  });
+
   await ok('מילוי טופס בעברית — ערך לוגי נשמר, מראה חזותי', async () => {
     const fields = await Ops.getFormFields(form);
     assert.deepStrictEqual(fields.map((f) => f.name), ['full_name', 'notes', 'agree']);
