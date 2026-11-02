@@ -140,7 +140,8 @@ async function makeForm() {
   async function linesOf(bytes, pageIdx) {
     const d = await PDFDocument.load(bytes);
     const a = T.analyzePage(d, d.getPage(pageIdx));
-    return T.groupLines(a.glyphs).map((L) => ({ text: T.lineText(L).text, box: L.box.map((v) => v.toFixed(1)).join(','), ok: L.ok }));
+    const lines = T.groupLines(a.glyphs);
+    return lines.map((L) => ({ text: T.lineText(L, lines).text, box: L.box.map((v) => v.toFixed(1)).join(','), ok: L.ok }));
   }
 
   const editFonts = { plex, alef: fonts };
@@ -194,6 +195,8 @@ async function makeForm() {
     const c = await linesOf(FIX('הסכם שכירות.pdf'), 0);
     assert.strictEqual(c[0].text, 'הסכם שכירות בלתי מוגנת');
     assert.ok(c.some((l) => l.text.includes('6,450 ש"ח (שישה אלף')));
+    // שורת המשך שמתחילה באמצע סוגריים
+    assert.ok(c.some((l) => l.text === 'חדשים), וישולמו עד ה-5 בכל חודש בהעברה בנקאית.'), c.map((l) => l.text).join('\n'));
     const lo = await linesOf(FIX('libreoffice-letter.pdf'), 0);
     assert.ok(lo.some((l) => l.text === 'לכבוד: משרד עו"ד כהן ושות\' (סניף ת"א)'), lo.map((l) => l.text).join('\n'));
     assert.ok(lo.some((l) => l.text === 'הנדון: חשבונית מס\' 2026/118 על סך 12,300.50 ₪'));
