@@ -1,0 +1,42 @@
+# בונה את תוכנת ההתקנה ומפרסם אותה ב-Releases בכל תג גרסה (v1.2.0, v1.3.0...)
+# הקישור הקבוע להורדה של הגרסה האחרונה:
+#   https://github.com/kobibest/eitan-pdf/releases/latest/download/EitanPDF-Setup-x64.exe
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Build installer
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full
+          installer/build.sh x64
+          VERSION=$(node -p "require('./package.json').version")
+          cp "dist/EitanPDF-Setup-$VERSION-x64.exe" dist/EitanPDF-Setup-x64.exe
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: איתןPDF ${{ github.ref_name }}
+          files: |
+            dist/EitanPDF-Setup-x64.exe
+            dist/EitanPDF-Setup-*-x64.exe
+          generate_release_notes: true
