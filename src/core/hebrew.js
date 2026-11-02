@@ -90,6 +90,23 @@
     return cl.map((c) => c.s).join('');
   }
 
+  /**
+   * המרה הפוכה: מחרוזת חזותית (כפי שהיא מצוירת ב-PDF, משמאל לימין) למחרוזת לוגית.
+   * אלגוריתם ה-bidi (היפוך רצפים + שיקוף סוגריים) מחזיר את עצמו במקרים הרגילים,
+   * ולכן ההמרה ההפוכה היא אותה פעולה. הקורא בודק הלוך-חזור עם roundTrips.
+   */
+  function toLogical(visual, direction) {
+    if (!visual) return '';
+    const dir = direction || (hasRTL(visual) ? 'rtl' : 'ltr');
+    return toVisual(visual, dir);
+  }
+
+  /** האם המחרוזת הלוגית מצוירת בחזרה בדיוק כמו המקור החזותי */
+  function roundTrips(visual, logical, direction) {
+    const dir = direction || (hasRTL(visual) ? 'rtl' : 'ltr');
+    return toVisual(logical, dir) === visual;
+  }
+
   /** כיוון לפי התו החזק הראשון */
   function detectDirection(text) {
     for (const ch of text) {
@@ -221,5 +238,5 @@
     return { lines: lines.length, width: lw, height: lines.length * (lineHeight || 1.25) * size };
   }
 
-  return { toVisual, hasRTL, detectDirection, wrapLines, drawText, measureBlock, clusters, embedFont, drawVisualLine };
+  return { toVisual, toLogical, roundTrips, hasRTL, detectDirection, wrapLines, drawText, measureBlock, clusters, embedFont, drawVisualLine };
 });
