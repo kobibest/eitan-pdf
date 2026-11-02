@@ -671,7 +671,7 @@
   function findLine(lines, edit) {
     const close = (a, b) => Math.abs(a - b) < 1;
     return lines.find((L) => L.angle === edit.angle && close(L.u0, edit.u0) && close(L.u1, edit.u1) && close(L.v, edit.v)
-      && lineText(L).text === edit.original) || null;
+      && lineText(L, lines).text === edit.original) || null;
   }
 
   /**
@@ -679,7 +679,7 @@
    * (בלי הגליפים עצמם — הם מחושבים מחדש בשמירה.)
    */
   function editFromLine(line, lines) {
-    const { text, dir } = lineText(line);
+    const { text, dir } = lineText(line, lines);
     const hexc = '#' + line.color.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
     return {
       type: 'edit', original: text, text, dir,
@@ -711,16 +711,44 @@
    * יש יוצרים (LibreOffice) שכותבים סוגר "(" ומציירים אותו הפוך בעצמם — ואז אחרי
    * ההמרה הסוגריים יוצאים הפוכים. מזהים את זה לפי סוגריים לא מאוזנים ומתקנים.
    */
-  function lineText(line) {
+  function rawLogical(line) {
     // ליגטורות לטיניות (ﬁ, ﬂ) → אותיות רגילות, כדי שאפשר יהיה לערוך אותן
-    const visual = line.visual.replace(/[\uFB00-\uFB06]/g, (c) => c.normalize('NFKC'));
+    const visual = line.visual.replace(/[ﬀ-ﬆ]/g, (c) => c.normalize('NFKC'));
     const dir = H.hasRTL(visual) ? 'rtl' : 'ltr';
-    let logical = H.toLogical(visual, dir);
-    if (!balanced(logical)) {
-      const swapped = logical.replace(/[()[\]{}]/g, (c) => PAIRS[c]);
-      if (balanced(swapped)) logical = swapped;
+    return { text: H.toLogical(visual, dir), dir };
+  }
+  const swapBrackets = (t) => t.replace(/[()[\]{}]/g, (c) => PAIRS[c]);
+  const hasPair = (t) => /[([{]/.test(t) && /[)\]}]/.test(t);
+
+  /** האם היוצר של העמוד שומר סוגריים "לוגיים" (כמו LibreOffice) — לפי שורות עם זוג סוגריים שלם */
+  const swapCache = new WeakMap();
+  function pageSwaps(lines) {
+    if (swapCache.has(lines)) return swapCache.get(lines);
+    let yes = 0, no = 0;
+    for (const L of lines) {
+      const { text } = rawLogical(L);
+      if (!hasPair(text)) continue;
+      if (balanced(text)) no++;
+      else if (balanced(swapBrackets(text))) yes++;
     }
-    return { text: logical, dir };
+    const v = yes > no;
+    swapCache.set(lines, v);
+    return v;
+  }
+
+  /**
+   * הטקסט הלוגי של שורה (כפי שמקלידים אותו).
+   * יש יוצרים (LibreOffice) שכותבים סוגר "(" ומציירים אותו הפוך בעצמם — ואז אחרי
+   * ההמרה הסוגריים יוצאים הפוכים. שורה עם זוג סוגריים מוכרעת לפי האיזון שלה;
+   * שורה עם סוגר בודד (המשך של סוגריים מהשורה הקודמת) — לפי שאר השורות בעמוד.
+   */
+  function lineText(line, lines) {
+    const { text, dir } = rawLogical(line);
+    if (!/[()[\]{}]/.test(text)) return { text, dir };
+    let swap;
+    if (hasPair(text)) swap = !balanced(text) && balanced(swapBrackets(text));
+    else swap = lines ? pageSwaps(lines) : false;
+    return { text: swap ? swapBrackets(text) : text, dir };
   }
 
   /* ---------- מחיקה ---------- */
