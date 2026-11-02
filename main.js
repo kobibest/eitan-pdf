@@ -132,9 +132,14 @@ function createWindow() {
     {
       label: 'תצוגה',
       submenu: [
+        { label: 'עמוד יחיד', click: send('layout-single') },
+        { label: 'גלילה רציפה', click: send('layout-continuous') },
+        { label: 'שני עמודים זה לצד זה', click: send('layout-two') },
+        { type: 'separator' },
         { label: 'הגדלה', accelerator: 'CmdOrCtrl+=', click: send('zoom-in') },
         { label: 'הקטנה', accelerator: 'CmdOrCtrl+-', click: send('zoom-out') },
         { label: 'התאמה לרוחב', accelerator: 'CmdOrCtrl+0', click: send('zoom-fit') },
+        { label: 'עמוד שלם במסך', accelerator: 'CmdOrCtrl+9', click: send('zoom-page') },
         { type: 'separator' },
         { label: 'הלשונית הבאה', accelerator: 'Ctrl+Tab', click: send('next-tab') },
         { label: 'הלשונית הקודמת', accelerator: 'Ctrl+Shift+Tab', click: send('prev-tab') },
@@ -210,18 +215,6 @@ ipcMain.handle('write-files', async (_e, { folder, files }) => {
     written.push(target);
   }
   return written;
-});
-
-ipcMain.handle('list-pdfs', async (_e, folder) => {
-  const entries = await fs.readdir(folder, { withFileTypes: true });
-  const out = [];
-  for (const e of entries) {
-    if (!e.isFile() || !/\.pdf$/i.test(e.name)) continue;
-    const full = path.join(folder, e.name);
-    const st = await fs.stat(full);
-    out.push({ name: e.name, path: full, size: st.size, mtime: st.mtimeMs });
-  }
-  return out.sort((a, b) => b.mtime - a.mtime);
 });
 
 ipcMain.handle('read-asset', async (_e, rel) => {

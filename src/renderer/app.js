@@ -49,6 +49,14 @@ const ICONS = {
   zoomIn: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4M8.5 11h5M11 8.5v5"/>',
   zoomOut: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4M8.5 11h5"/>',
   fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  fitW: '<path d="M3.5 5v14M20.5 5v14M7 12h10M7 12l2.5-2.5M7 12l2.5 2.5M17 12l-2.5-2.5M17 12l-2.5 2.5"/>',
+  fitPage: '<rect x="6" y="3" width="12" height="18" rx="1.5"/><path d="M9.5 9 12 6.5 14.5 9M9.5 15l2.5 2.5 2.5-2.5"/>',
+  single: '<rect x="6" y="3.5" width="12" height="17" rx="1.5"/><path d="M9 8h6M9 11.5h6M9 15h4"/>',
+  continuous: '<rect x="6" y="2" width="12" height="5.5" rx="1"/><rect x="6" y="9.25" width="12" height="5.5" rx="1"/><rect x="6" y="16.5" width="12" height="5.5" rx="1"/>',
+  two: '<rect x="2.5" y="5" width="8.5" height="14" rx="1.2"/><rect x="13" y="5" width="8.5" height="14" rx="1.2"/>',
+  chevR: '<path d="m9 6 6 6-6 6"/>',
+  chevL: '<path d="m15 6-6 6 6 6"/>',
+  doc: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
   check: '<path d="m5 12 4.5 4.5L19 7"/>',
   redact: '<rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor" stroke="none"/><path d="M3 5h8M3 19h12"/>',
 };
@@ -71,7 +79,6 @@ const TOOLS = [
   { id: 'pages', label: 'עמודים', icon: 'grid', doc: true },
   { id: 'sign', label: 'טקסט וחתימה', icon: 'sign', doc: true },
   { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
-  { id: 'folder', label: 'תיקייה', icon: 'folder', doc: false },
   { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true },
 ];
 const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'forms']);
@@ -102,6 +109,7 @@ function newDoc(title, path) {
     },
     flattenForms: false,
     scroll: 0,
+    curPage: 0, // העמוד הנוכחי בתצוגה (לניווט ולמצב "עמוד יחיד")
   };
   docs.set(d.id, d);
   return d;
@@ -114,9 +122,9 @@ const S = {
   placing: null,
   activeItem: null,
   thumbW: +(localStore('thumbW') || 168),
-  zoom: 'fit',
+  zoom: 'fit', // 'fit' = התאמה לרוחב, 'page' = עמוד שלם, או מספר
+  layout: ['single', 'continuous', 'two'].includes(localStore('layout')) ? localStore('layout') : 'continuous',
   signature: null,
-  folder: localStore('folder') || null,
   fonts: null,
   pendingImage: null,
   pagesMode: 'arrange', // בתוך "עמודים": סידור / מיזוג / פיצול / סימן מים ומספור
@@ -130,6 +138,7 @@ const PAGES_MODES = [
 /** כלים ישנים (מיזוג/פיצול/סימון) הם עכשיו מצבים בתוך "עמודים" */
 function normalizeTool(t) {
   if (t === 'merge' || t === 'split' || t === 'extras') { S.pagesMode = t; return 'pages'; }
+  if (t === 'folder') return 'view'; // כלי שהוסר
   return t;
 }
 const inMerge = () => S.tool === 'pages' && S.pagesMode === 'merge';
@@ -216,10 +225,6 @@ const h = (html) => {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const baseName = (n) => String(n || 'מסמך').replace(/\.pdf$/i, '');
-
-const fmtSize = (b) => (b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
-
-const fmtDate = (ms) => new Date(ms).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: 'numeric' });
 
 const todayStr = () => new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -558,19 +563,26 @@ function wireReorder(grid) {
 }
 
 function scrollToEditorPage() {
-  const el = $(`#desk .page-frame[data-key="${CSS.escape(editorScrollTarget)}"]`);
+  const key = editorScrollTarget;
   editorScrollTarget = null;
+  const idx = S.pages.findIndex((p) => p.key === key);
+  if (idx >= 0 && D()) D().curPage = idx;
+  if (S.layout === 'single') {
+    if (idx >= 0 && !$(`#desk .page-frame[data-key="${CSS.escape(key)}"]`)) { render(); $('#desk').scrollTop = 0; }
+    return;
+  }
+  const el = $(`#desk .page-frame[data-key="${CSS.escape(key)}"]`);
   if (el) requestAnimationFrame(() => el.scrollIntoView({ block: 'start' }));
 }
 
-function editorPage(p, i, maxW) {
-  const frame = h(`<div class="page-frame" data-key="${esc(p.key)}"><span class="page-label">${i + 1}</span><canvas></canvas><div class="overlay ${S.placing ? 'placing' : ''}"></div></div>`);
+function editorPage(p, i, maxW, maxH) {
+  const frame = h(`<div class="page-frame" data-key="${esc(p.key)}" data-idx="${i}"><span class="page-label">${i + 1}</span><canvas></canvas><div class="overlay ${S.placing ? 'placing' : ''}"></div></div>`);
   const sz = p.src === 'blank' ? { w: p.w, h: p.h } : sourcePageSize(p) || { w: 595, h: 842 };
   const rot = (((p.rotate || 0) % 180) + 180) % 180;
   const vw = rot ? sz.h : sz.w;
   const vh = rot ? sz.w : sz.h;
-  const fitScale = (w) => (S.zoom === 'fit' ? Math.min(maxW / w, 2) : S.zoom);
-  let scale = fitScale(vw);
+  const fitScale = (w, ht) => (S.zoom === 'fit' ? Math.min(maxW / w, 2) : S.zoom === 'page' ? Math.min(maxW / w, maxH / ht, 2) : S.zoom);
+  let scale = fitScale(vw, vh);
   frame.style.width = vw * scale + 'px';
   frame.style.height = vh * scale + 'px';
   const overlay = frame.querySelector('.overlay');
@@ -579,7 +591,7 @@ function editorPage(p, i, maxW) {
 
   frame.__render = async () => {
     const info = await pageInfo(p);
-    scale = fitScale(info.viewW);
+    scale = fitScale(info.viewW, info.viewH);
     ctx.scale = scale; ctx.vw = info.viewW; ctx.vh = info.viewH;
     frame.style.width = info.viewW * scale + 'px';
     frame.style.height = info.viewH * scale + 'px';
@@ -1303,99 +1315,6 @@ async function renderPreview(wrap) {
   }
 }
 
-const folderThumbs = new Map(); // path|mtime → canvas
-
-async function renderFolder() {
-  const panel = $('#panel');
-  const desk = $('#desk');
-  const g = h(`
-    <div class="group">
-      <h2>עיון בתיקייה</h2>
-      <p class="hint">רואים את העמוד הראשון של כל קובץ PDF בתיקייה. לחיצה פותחת את הקובץ בלשונית חדשה.</p>
-      <button class="btn btn-block">${icon('folder')}${S.folder ? 'החלפת תיקייה' : 'בחירת תיקייה'}</button>
-    </div>`);
-  g.querySelector('button').onclick = async () => {
-    const f = await api.chooseFolder('בחירת תיקייה עם קבצי PDF');
-    if (f) { S.folder = f; localStore('folder', f); render(); }
-  };
-  panel.append(g);
-
-  if (!S.folder) {
-    desk.append(h(`<div class="empty"><div class="empty-inner"><h1>בחרו תיקייה</h1><p>התוכנה תציג תמונה ממוזערת של העמוד הראשון בכל קובץ PDF שבה, כדי שתמצאו מסמך במבט אחד.</p></div></div>`));
-    const b = h(`<button class="btn btn-primary btn-lg">${icon('folder')}בחירת תיקייה</button>`);
-    b.onclick = g.querySelector('button').onclick;
-    desk.querySelector('.empty-inner').append(b);
-    return;
-  }
-
-  const head = h(`<div class="folder-head"><span class="folder-path" title="${esc(S.folder)}">${esc(S.folder)}</span></div>`);
-  desk.append(head);
-  let files;
-  try { files = await api.listPdfs(S.folder); } catch (e) {
-    desk.append(h('<div class="empty"><div class="empty-inner"><h1>התיקייה לא נמצאה</h1><p>ייתכן שהיא נמחקה או הועברה. בחרו תיקייה אחרת.</p></div></div>'));
-    return;
-  }
-  if (S.tool !== 'folder') return;
-  if (!files.length) {
-    desk.append(h('<div class="empty"><div class="empty-inner"><h1>אין כאן קבצי PDF</h1><p>בחרו תיקייה אחרת מהלוח בצד.</p></div></div>'));
-    return;
-  }
-  head.prepend(h(`<strong style="white-space:nowrap">${plural(files.length, 'קובץ אחד', 'קבצים')}</strong>`));
-  const inWork = new Set([...docs.values()].map((d) => d.path).filter(Boolean));
-  const grid = h('<div class="doc-grid"></div>');
-  for (const f of files) {
-    const added = inWork.has(f.path);
-    const el = h(`
-      <div style="position:relative">
-        <button class="doc ${added ? 'added' : ''}" title="${esc(f.name)}">
-          <div class="paper"><span class="loading" style="width:100%;height:100%"></span></div>
-          <span class="doc-name">${esc(baseName(f.name))}</span>
-          <span class="doc-meta">${fmtDate(f.mtime)}, ${fmtSize(f.size)}</span>
-        </button>
-        ${added ? '<span class="badge">פתוח</span>' : ''}
-      </div>`);
-    const btn = el.querySelector('.doc');
-    btn.onclick = async () => {
-      const entry = await api.readFile(f.path);
-      await openEntries([entry], { tool: 'view' });
-    };
-    el.__render = async () => {
-      const ck = f.path + '|' + f.mtime;
-      let c = folderThumbs.get(ck);
-      if (!c) {
-        try {
-          c = await schedule(async () => {
-            const entry = await api.readFile(f.path);
-            const pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: entry.bytes }).promise;
-            const pg = await pdf.getPage(1);
-            const vp1 = pg.getViewport({ scale: 1 });
-            const dpr = window.devicePixelRatio || 1;
-            const vp = pg.getViewport({ scale: (180 / Math.max(vp1.width, vp1.height * 0.707)) * dpr });
-            const cv = document.createElement('canvas');
-            cv.width = vp.width; cv.height = vp.height;
-            const ctx = cv.getContext('2d');
-            ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-            await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-            pdf.destroy();
-            return cv;
-          });
-          folderThumbs.set(ck, c);
-        } catch (e) {
-          el.querySelector('.paper').replaceChildren(h('<span style="padding:12px;line-height:1.4;font-size:12px;color:var(--ink-3)">לא ניתן להציג (מוגן או פגום)</span>'));
-          return;
-        }
-      }
-      const out = document.createElement('canvas');
-      out.width = c.width; out.height = c.height;
-      out.getContext('2d').drawImage(c, 0, 0);
-      el.querySelector('.paper').replaceChildren(out);
-    };
-    lazy.observe(el);
-    grid.append(el);
-  }
-  desk.append(grid);
-}
-
 async function buildBytes(pages, opts = {}) {
   const sources = {};
   for (const s of S.sources.values()) sources[s.id] = s.bytes;
@@ -1530,7 +1449,7 @@ async function openEntries(entries, opts = {}) {
       last = d;
     }
   });
-  if (last) activate(last.id, opts.tool || (S.tool === 'folder' || S.tool === 'windows' ? 'view' : S.tool));
+  if (last) activate(last.id, opts.tool || (S.tool === 'windows' ? 'view' : S.tool));
   else render();
 }
 
@@ -1682,7 +1601,7 @@ function render() {
   } else {
     ({
       view: renderView, pages: renderPages, sign: renderSign,
-      forms: renderForms, folder: renderFolder, windows: renderWindows,
+      forms: renderForms, windows: renderWindows,
     })[S.tool]();
   }
   desk.scrollTop = keepScroll;
@@ -1692,9 +1611,8 @@ function render() {
 function updateChrome() {
   const d = D();
   $('#btn-save').disabled = !d || !d.pages.length;
-  $('#btn-saveas').disabled = !d || !d.pages.length;
-  $('#btn-undo').disabled = !d || !d.undo.length;
-  $('#btn-redo').disabled = !d || !d.redo.length;
+  $('#btn-save').classList.toggle('dirty', !!(d && d.dirty));
+  updateViewCtl();
   document.title = d ? `${d.title}${d.dirty ? ' •' : ''} — איתןPDF` : 'איתןPDF';
 }
 
@@ -1717,7 +1635,7 @@ function renderTabs() {
     const on = d.id === activeId;
     const t = h(`
       <div class="tab ${on ? 'on' : ''}" role="tab" aria-selected="${on}" title="${esc(d.path || d.title)}">
-        <button class="tab-name" ${on ? 'tabindex="-1"' : ''}>${d.dirty ? '<span class="dot" aria-label="לא נשמר"></span>' : ''}<span class="tab-text">${esc(d.title)}</span></button>
+        <button class="tab-name" ${on ? 'tabindex="-1"' : ''}>${icon('doc')}${d.dirty ? '<span class="dot" aria-label="לא נשמר"></span>' : ''}<span class="tab-text">${esc(d.title)}</span></button>
         <button class="tab-x" aria-label="סגירת ${esc(d.title)}" title="סגירה">${icon('x')}</button>
       </div>`);
     t.querySelector('.tab-name').onclick = () => { if (!on) activate(d.id); };
@@ -1725,9 +1643,6 @@ function renderTabs() {
     t.querySelector('.tab-x').onclick = (e) => { e.stopPropagation(); closeTab(d.id); };
     bar.append(t);
   }
-  const plus = h(`<button class="tab-plus" title="פתיחת קובץ (Ctrl+O)" aria-label="פתיחת קובץ">${icon('plus')}</button>`);
-  plus.onclick = openDialog;
-  bar.append(plus);
 }
 
 function renderRail() {
@@ -1764,14 +1679,12 @@ function renderEmpty() {
         <p>כל קובץ נפתח בלשונית משלו. משם אפשר לחתום, למלא טפסים, למזג, לפצל ולסדר עמודים, בעברית תקינה.</p>
         <div class="btn-row">
           <button class="btn btn-primary btn-lg" data-act="open">פתיחת קבצים</button>
-          <button class="btn btn-lg" data-act="folder">${icon('folder')}עיון בתיקייה</button>
           <button class="btn btn-quiet btn-lg" data-act="images">${icon('image')}תמונות ל-PDF</button>
         </div>
         <p class="empty-note">הקבצים לא עולים לשום מקום. התוכנה עובדת גם בלי אינטרנט.</p>
       </div>
     </div>`);
   el.querySelector('[data-act=open]').onclick = openDialog;
-  el.querySelector('[data-act=folder]').onclick = () => setView('folder');
   el.querySelector('[data-act=images]').onclick = addImages;
   desk.append(el);
 }
@@ -1866,33 +1779,113 @@ function openInEditor(key) {
 
 function pageColumn() {
   const desk = $('#desk');
-  const bar = h(`
-    <div class="desk-bar view-bar">
-      <span class="page-count">${plural(S.pages.length, 'עמוד אחד', 'עמודים')}</span>
-      <span class="spacer"></span>
-      <div class="zoom" role="group" aria-label="זום">
-        <button class="icon-btn" data-z="out" title="הקטנה (Ctrl -)" aria-label="הקטנה">${icon('zoomOut')}</button>
-        <span class="zoom-val">${S.zoom === 'fit' ? 'רוחב' : Math.round(S.zoom * 100) + '%'}</span>
-        <button class="icon-btn" data-z="in" title="הגדלה (Ctrl +)" aria-label="הגדלה">${icon('zoomIn')}</button>
-        <button class="icon-btn ${S.zoom === 'fit' ? 'on' : ''}" data-z="fit" title="התאמה לרוחב" aria-label="התאמה לרוחב">${icon('fit')}</button>
-      </div>
-    </div>`);
-  bar.querySelectorAll('[data-z]').forEach((b) => (b.onclick = () => zoom(b.dataset.z)));
-  desk.append(bar);
-  const col = h('<div class="pages-column"></div>');
+  const d = D();
+  const n = S.pages.length;
+  d.curPage = Math.max(0, Math.min(n - 1, d.curPage || 0));
+  const layout = S.layout;
+  const col = h(`<div class="pages-column layout-${layout}"></div>`);
   const deskW = desk.clientWidth || 900;
-  const maxW = Math.max(320, Math.min(1000, deskW - 120));
-  S.pages.forEach((p, i) => col.append(editorPage(p, i, maxW)));
+  const deskH = desk.clientHeight || 700;
+  const maxW = layout === 'two'
+    ? Math.max(220, Math.min(820, (deskW - 170) / 2))
+    : Math.max(320, Math.min(1000, deskW - 120));
+  const maxH = Math.max(240, deskH - 120);
+  if (layout === 'single') col.append(editorPage(S.pages[d.curPage], d.curPage, maxW, maxH));
+  else S.pages.forEach((p, i) => col.append(editorPage(p, i, maxW, maxH)));
   desk.append(col);
+  desk.append(pageNav());
   if (editorScrollTarget) scrollToEditorPage();
+}
+
+/** פס ניווט צף בתחתית: עמוד קודם/הבא ומעבר ישיר למספר עמוד */
+function pageNav() {
+  const d = D();
+  const n = S.pages.length;
+  const nav = h(`
+    <div class="page-nav" role="group" aria-label="ניווט בין עמודים">
+      <button class="icon-btn" data-nav="-1" title="העמוד הקודם (PageUp)" aria-label="העמוד הקודם">${icon('chevR')}</button>
+      <label class="page-nav-pos"><input class="page-nav-input" type="text" inputmode="numeric" value="${d.curPage + 1}" aria-label="מספר עמוד"><span>מתוך ${n}</span></label>
+      <button class="icon-btn" data-nav="1" title="העמוד הבא (PageDown)" aria-label="העמוד הבא">${icon('chevL')}</button>
+    </div>`);
+  nav.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => goToPage(D().curPage + +b.dataset.nav)));
+  const inp = nav.querySelector('input');
+  inp.onfocus = () => inp.select();
+  inp.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      const v = parseInt(inp.value, 10);
+      inp.blur();
+      if (v >= 1) goToPage(v - 1);
+    } else if (e.key === 'Escape') { inp.value = D().curPage + 1; inp.blur(); }
+  };
+  inp.onblur = () => { if (D()) inp.value = D().curPage + 1; };
+  updatePageNav(nav);
+  return nav;
+}
+
+function updatePageNav(nav = $('#desk .page-nav')) {
+  const d = D();
+  if (!nav || !d) return;
+  const inp = nav.querySelector('input');
+  if (document.activeElement !== inp) inp.value = d.curPage + 1;
+  nav.querySelector('[data-nav="-1"]').disabled = d.curPage <= 0;
+  nav.querySelector('[data-nav="1"]').disabled = d.curPage >= S.pages.length - 1;
+}
+
+/** מעבר לעמוד. atEnd: בעמוד יחיד — להציג את תחתית העמוד (כשגוללים אחורה) */
+function goToPage(i, atEnd) {
+  const d = D();
+  if (!d || !S.pages.length) return;
+  i = Math.max(0, Math.min(S.pages.length - 1, i));
+  const desk = $('#desk');
+  if (S.layout === 'single') {
+    if (d.curPage === i) return;
+    d.curPage = i;
+    S.activeItem = null;
+    render();
+    desk.scrollTop = atEnd ? desk.scrollHeight : 0;
+    return;
+  }
+  d.curPage = i;
+  const el = desk.querySelector(`.page-frame[data-idx="${i}"]`);
+  if (el) desk.scrollTop += el.getBoundingClientRect().top - desk.getBoundingClientRect().top - 16;
+  updatePageNav();
+}
+
+/** בגלילה רציפה: העמוד הנוכחי הוא זה שחוצה את השליש העליון של המסך */
+let trackRaf = 0;
+function trackPage() {
+  trackRaf = 0;
+  const d = D();
+  if (!d || !PAGE_COLUMN_TOOLS.has(S.tool) || S.layout === 'single') return;
+  const desk = $('#desk');
+  const line = desk.getBoundingClientRect().top + desk.clientHeight * 0.33;
+  let idx = 0;
+  for (const f of desk.querySelectorAll('.page-frame')) {
+    if (f.getBoundingClientRect().top <= line) idx = +f.dataset.idx;
+    else break;
+  }
+  if (d.curPage !== idx) { d.curPage = idx; updatePageNav(); }
+}
+
+function setLayout(l) {
+  if (!['single', 'continuous', 'two'].includes(l) || S.layout === l) return;
+  S.layout = l;
+  localStore('layout', l);
+  if (!PAGE_COLUMN_TOOLS.has(S.tool)) { updateViewCtl(); return; }
+  const d = D();
+  render();
+  if (d) {
+    if (l === 'single') $('#desk').scrollTop = 0;
+    else goToPage(d.curPage);
+  }
 }
 
 /** זום: יחסית לגודל הנוכחי של העמוד הראשון שנראה */
 function zoom(dir) {
-  if (dir === 'fit') S.zoom = 'fit';
+  if (dir === 'fit' || dir === 'page') S.zoom = dir;
   else {
     const frame = $('#desk .page-frame');
-    const cur = S.zoom === 'fit' ? (frame && frame.__ctx ? frame.__ctx.scale : 1) : S.zoom;
+    const cur = typeof S.zoom === 'string' ? (frame && frame.__ctx ? frame.__ctx.scale : 1) : S.zoom;
     const steps = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
     S.zoom = dir === 'in' ? steps.find((s) => s > cur + 0.01) || 3 : [...steps].reverse().find((s) => s < cur - 0.01) || 0.5;
   }
@@ -1900,6 +1893,66 @@ function zoom(dir) {
   const ratio = desk.scrollTop / Math.max(1, desk.scrollHeight);
   render();
   desk.scrollTop = ratio * desk.scrollHeight;
+}
+
+/** זום מהסרגל העליון או מהתפריט: בעמודים בגלילה — זום אמיתי; ברשת העמודים — גודל התמונות הממוזערות */
+const THUMB_DEFAULT = 168;
+function zoomCmd(dir) {
+  if (!D() || !S.pages.length) return;
+  if (PAGE_COLUMN_TOOLS.has(S.tool)) return zoom(dir);
+  if (S.tool !== 'pages') return;
+  S.thumbW = dir === 'in' || dir === 'out'
+    ? Math.max(110, Math.min(300, S.thumbW + (dir === 'in' ? 24 : -24)))
+    : THUMB_DEFAULT;
+  localStore('thumbW', String(S.thumbW));
+  render();
+}
+
+/** פקדי התצוגה בסרגל העליון: פריסת עמודים וזום */
+function buildViewCtl() {
+  const el = $('#view-ctl');
+  el.innerHTML = `
+    <div class="ctl-group" role="radiogroup" aria-label="פריסת עמודים">
+      <button class="icon-btn" data-layout="single" role="radio" title="עמוד יחיד" aria-label="עמוד יחיד">${icon('single')}</button>
+      <button class="icon-btn" data-layout="continuous" role="radio" title="גלילה רציפה" aria-label="גלילה רציפה">${icon('continuous')}</button>
+      <button class="icon-btn" data-layout="two" role="radio" title="שני עמודים זה לצד זה" aria-label="שני עמודים זה לצד זה">${icon('two')}</button>
+    </div>
+    <div class="ctl-group" role="group" aria-label="זום">
+      <button class="icon-btn" data-z="out" title="הקטנה (Ctrl -)" aria-label="הקטנה">${icon('zoomOut')}</button>
+      <span class="zoom-val" aria-live="polite"></span>
+      <button class="icon-btn" data-z="in" title="הגדלה (Ctrl +)" aria-label="הגדלה">${icon('zoomIn')}</button>
+      <span class="ctl-sep"></span>
+      <button class="icon-btn" data-z="fit" title="התאמה לרוחב (Ctrl 0)" aria-label="התאמה לרוחב">${icon('fitW')}</button>
+      <button class="icon-btn" data-z="page" title="עמוד שלם במסך" aria-label="עמוד שלם במסך">${icon('fitPage')}</button>
+    </div>`;
+  el.querySelectorAll('[data-layout]').forEach((b) => (b.onclick = () => setLayout(b.dataset.layout)));
+  el.querySelectorAll('[data-z]').forEach((b) => (b.onclick = () => zoomCmd(b.dataset.z)));
+}
+
+function updateViewCtl() {
+  const el = $('#view-ctl');
+  const d = D();
+  const show = !!(d && d.pages.length && (PAGE_COLUMN_TOOLS.has(S.tool) || S.tool === 'pages'));
+  el.hidden = !show;
+  if (!show) return;
+  const column = PAGE_COLUMN_TOOLS.has(S.tool);
+  el.querySelector('[role=radiogroup]').hidden = !column; // ברשת העמודים אין פריסה — רק גודל
+  el.querySelectorAll('[data-layout]').forEach((b) => {
+    const on = b.dataset.layout === S.layout;
+    b.disabled = !column;
+    b.classList.toggle('on', column && on);
+    b.setAttribute('aria-checked', String(on));
+  });
+  el.querySelectorAll('[data-z=fit],[data-z=page]').forEach((b) => {
+    b.classList.toggle('on', column && S.zoom === b.dataset.z);
+    b.setAttribute('aria-pressed', String(column && S.zoom === b.dataset.z));
+  });
+  let pct;
+  if (column) {
+    const frame = $('#desk .page-frame');
+    pct = typeof S.zoom === 'number' ? S.zoom : frame && frame.__ctx ? frame.__ctx.scale : 1;
+  } else pct = S.thumbW / THUMB_DEFAULT;
+  el.querySelector('.zoom-val').textContent = Math.round(pct * 100) + '%';
 }
 
 function renderView() {
@@ -2117,11 +2170,22 @@ async function saveAs(opts = {}) {
  * אירועים כלליים
  * ======================================================= */
 function wire() {
-  $('#btn-open').onclick = openDialog;
   $('#btn-save').onclick = () => saveDocument();
-  $('#btn-saveas').onclick = () => saveAs();
-  $('#btn-undo').onclick = undo;
-  $('#btn-redo').onclick = redo;
+  buildViewCtl();
+
+  // מעקב אחרי העמוד הנוכחי, ובמצב "עמוד יחיד" — גלילה בקצה מעבירה עמוד
+  const deskEl = $('#desk');
+  deskEl.addEventListener('scroll', () => { if (!trackRaf) trackRaf = requestAnimationFrame(trackPage); }, { passive: true });
+  let lastFlip = 0;
+  deskEl.addEventListener('wheel', (e) => {
+    if (S.layout !== 'single' || !PAGE_COLUMN_TOOLS.has(S.tool) || e.ctrlKey || !D()) return;
+    const now = Date.now();
+    if (now - lastFlip < 450) { lastFlip = now; return; } // תנופה של משטח מגע — לא מדפדפים ברצף
+    const atBottom = deskEl.scrollTop + deskEl.clientHeight >= deskEl.scrollHeight - 2;
+    const atTop = deskEl.scrollTop <= 0;
+    if (e.deltaY > 0 && atBottom && D().curPage < S.pages.length - 1) { lastFlip = now; goToPage(D().curPage + 1); }
+    else if (e.deltaY < 0 && atTop && D().curPage > 0) { lastFlip = now; goToPage(D().curPage - 1, true); }
+  }, { passive: true });
 
   // בקשות פתיחה מבחוץ: לחיצה כפולה על קובץ, קליק ימני (פתיחה/מיזוג/פיצול)
   api.onOpenRequest(async ({ mode, paths }) => {
@@ -2139,14 +2203,9 @@ function wire() {
     else if (cmd === 'undo') { if (!isTyping()) undo(); else document.execCommand('undo'); }
     else if (cmd === 'redo') { if (!isTyping()) redo(); else document.execCommand('redo'); }
     else if (cmd === 'select-all') { if (isTyping()) document.execCommand('selectAll'); else if (inGrid()) selectAll(); }
-    else if (cmd === 'zoom-in' || cmd === 'zoom-out' || cmd === 'zoom-fit') {
-      if (PAGE_COLUMN_TOOLS.has(S.tool)) zoom(cmd === 'zoom-in' ? 'in' : cmd === 'zoom-out' ? 'out' : 'fit');
-      else {
-        S.thumbW = Math.max(110, Math.min(300, S.thumbW + (cmd === 'zoom-in' ? 24 : -24)));
-        localStore('thumbW', String(S.thumbW));
-        render();
-      }
-    } else if (cmd === 'about') about();
+    else if (cmd.startsWith('zoom-')) zoomCmd(cmd.slice(5));
+    else if (cmd.startsWith('layout-')) setLayout(cmd.slice(7));
+    else if (cmd === 'about') about();
     else if (cmd === 'next-tab' || cmd === 'prev-tab') {
       const ids = [...docs.keys()];
       if (ids.length < 2) return;
@@ -2184,6 +2243,19 @@ function wire() {
       else if (S.activeItem) { S.activeItem = null; refreshItems(); }
       else if (S.selected.size) { S.selected.clear(); render(); }
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+    else if (PAGE_COLUMN_TOOLS.has(S.tool) && D() && S.pages.length && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // דפדוף: PageUp/PageDown, Home/End; בעמוד יחיד גם חיצים (בעברית — שמאלה זה קדימה)
+      const cur = D().curPage;
+      const single = S.layout === 'single';
+      let to = null;
+      if (e.key === 'PageDown' && single) to = cur + 1;
+      else if (e.key === 'PageUp' && single) to = cur - 1;
+      else if (e.key === 'Home' && single) to = 0;
+      else if (e.key === 'End' && single) to = S.pages.length - 1;
+      else if (single && !S.activeItem && e.key === 'ArrowLeft') to = cur + 1;
+      else if (single && !S.activeItem && e.key === 'ArrowRight') to = cur - 1;
+      if (to !== null) { e.preventDefault(); goToPage(to); }
+    }
   });
 
   // גרירת קבצים מסייר הקבצים
@@ -2217,7 +2289,7 @@ function wire() {
   });
 
   let rt;
-  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (PAGE_COLUMN_TOOLS.has(S.tool) && S.zoom === 'fit') render(); }, 200); });
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (PAGE_COLUMN_TOOLS.has(S.tool) && (typeof S.zoom === 'string' || S.layout === 'two')) render(); }, 200); });
 }
 
 /* =========================================================

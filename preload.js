@@ -9,7 +9,6 @@ contextBridge.exposeInMainWorld('api', {
   saveAs: (defaultName, bytes, near) => ipcRenderer.invoke('save-as', { defaultName, bytes, near }),
   chooseFolder: (title) => ipcRenderer.invoke('choose-folder', title),
   writeFiles: (folder, files) => ipcRenderer.invoke('write-files', { folder, files }),
-  listPdfs: (folder) => ipcRenderer.invoke('list-pdfs', folder),
   readAsset: (rel) => ipcRenderer.invoke('read-asset', rel),
   showInFolder: (p) => ipcRenderer.invoke('show-in-folder', p),
   openPath: (p) => ipcRenderer.invoke('open-path', p),
