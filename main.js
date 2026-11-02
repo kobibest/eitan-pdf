@@ -1,39 +1,65 @@
-// תהליך ראשי של Electron: חלון, תפריט בעברית, דיאלוגים וגישה לקבצים.
+// תהליך ראשי של Electron: חלון, תפריט בעברית, דיאלוגים, גישה לקבצים ושילוב ב-Windows.
 // אין כאן שום תקשורת רשת — הכל מקומי.
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
+const integration = require('./src/main/win-integration.js');
 
 let win;
-const pendingFiles = [];
+let rendererReady = false;
+let anyDirty = false;
+let closing = false;
 
-function pdfArgs(argv) {
-  return argv.filter((a) => /\.pdf$/i.test(a)).map((a) => path.resolve(a));
+/* ---------- בקשות פתיחה (לחיצה כפולה, קליק ימני, כמה קבצים בבת אחת) ---------- */
+// Windows מפעיל את התוכנה פעם אחת לכל קובץ שנבחר. אוספים את כולם לבקשה אחת.
+const pending = { open: [], merge: [], split: [] };
+let flushTimer = null;
+
+function parseArgs(argv) {
+  let mode = 'open';
+  const files = [];
+  for (const a of argv) {
+    if (a === '--merge') mode = 'merge';
+    else if (a === '--split') mode = 'split';
+    else if (a === '--open') mode = 'open';
+    else if (/\.pdf$/i.test(a)) files.push(path.resolve(a));
+  }
+  return { mode, files };
 }
 
-function sendFiles(paths) {
-  if (!paths.length) return;
-  if (win && win.webContents && !win.webContents.isLoading()) win.webContents.send('open-files', paths);
-  else pendingFiles.push(...paths);
+function queue(argv) {
+  const { mode, files } = parseArgs(argv);
+  if (!files.length) return;
+  pending[mode].push(...files);
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(flush, 700);
+}
+
+function flush() {
+  if (!rendererReady) return;
+  for (const mode of ['merge', 'split', 'open']) {
+    const paths = [...new Set(pending[mode].splice(0))];
+    if (paths.length) win.webContents.send('open-request', { mode, paths });
+  }
 }
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', (_e, argv) => {
-    sendFiles(pdfArgs(argv.slice(1)));
+    queue(argv.slice(1));
     if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
   });
 }
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1360,
-    height: 860,
-    minWidth: 960,
+    width: 1400,
+    height: 880,
+    minWidth: 980,
     minHeight: 600,
     title: 'PDF עברית',
-    backgroundColor: '#f4f1ea',
+    backgroundColor: '#D5DDD9',
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -44,45 +70,52 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html'));
-  win.webContents.on('did-finish-load', () => {
-    const initial = [...pdfArgs(process.argv.slice(app.isPackaged ? 1 : 2)), ...pendingFiles.splice(0)];
-    if (initial.length) win.webContents.send('open-files', initial);
-  });
-  // קישורים חיצוניים נפתחים בדפדפן ולא בתוך התוכנה
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.on('close', (e) => {
+    if (closing || !anyDirty) return;
+    e.preventDefault();
+    win.webContents.send('before-close');
+  });
 
+  const send = (cmd) => () => win.webContents.send('menu', cmd);
   const isMac = process.platform === 'darwin';
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
       label: 'קובץ',
       submenu: [
-        { label: 'פתיחת קבצים…', accelerator: 'CmdOrCtrl+O', click: () => win.webContents.send('menu', 'open') },
-        { label: 'שמירה בשם…', accelerator: 'CmdOrCtrl+S', click: () => win.webContents.send('menu', 'save') },
+        { label: 'פתיחת קבצים…', accelerator: 'CmdOrCtrl+O', click: send('open') },
+        { label: 'שמירה', accelerator: 'CmdOrCtrl+S', click: send('save') },
+        { label: 'שמירה בשם…', accelerator: 'CmdOrCtrl+Shift+S', click: send('save-as') },
         { type: 'separator' },
+        { label: 'סגירת לשונית', accelerator: 'CmdOrCtrl+W', click: send('close-tab') },
         { label: 'יציאה', role: isMac ? 'close' : 'quit' },
       ],
     },
     {
       label: 'עריכה',
       submenu: [
-        { label: 'ביטול', accelerator: 'CmdOrCtrl+Z', click: () => win.webContents.send('menu', 'undo') },
-        { label: 'ביצוע מחדש', accelerator: 'CmdOrCtrl+Y', click: () => win.webContents.send('menu', 'redo') },
+        { label: 'ביטול', accelerator: 'CmdOrCtrl+Z', click: send('undo') },
+        { label: 'ביצוע מחדש', accelerator: 'CmdOrCtrl+Y', click: send('redo') },
         { type: 'separator' },
         { label: 'גזירה', role: 'cut' },
         { label: 'העתקה', role: 'copy' },
         { label: 'הדבקה', role: 'paste' },
-        { label: 'בחירת הכל', accelerator: 'CmdOrCtrl+A', click: () => win.webContents.send('menu', 'select-all') },
+        { label: 'בחירת הכל', accelerator: 'CmdOrCtrl+A', click: send('select-all') },
       ],
     },
     {
       label: 'תצוגה',
       submenu: [
-        { label: 'הגדלה', accelerator: 'CmdOrCtrl+=', click: () => win.webContents.send('menu', 'zoom-in') },
-        { label: 'הקטנה', accelerator: 'CmdOrCtrl+-', click: () => win.webContents.send('menu', 'zoom-out') },
+        { label: 'הגדלה', accelerator: 'CmdOrCtrl+=', click: send('zoom-in') },
+        { label: 'הקטנה', accelerator: 'CmdOrCtrl+-', click: send('zoom-out') },
+        { label: 'התאמה לרוחב', accelerator: 'CmdOrCtrl+0', click: send('zoom-fit') },
+        { type: 'separator' },
+        { label: 'הלשונית הבאה', accelerator: 'Ctrl+Tab', click: send('next-tab') },
+        { label: 'הלשונית הקודמת', accelerator: 'Ctrl+Shift+Tab', click: send('prev-tab') },
         { type: 'separator' },
         { label: 'מסך מלא', role: 'togglefullscreen' },
         ...(app.isPackaged ? [] : [{ label: 'כלי פיתוח', role: 'toggleDevTools' }]),
@@ -90,13 +123,12 @@ function createWindow() {
     },
     {
       label: 'עזרה',
-      submenu: [{ label: 'אודות', click: () => win.webContents.send('menu', 'about') }],
+      submenu: [{ label: 'אודות', click: send('about') }],
     },
   ]));
 }
 
 /* ---------- IPC ---------- */
-
 const PDF_FILTER = [{ name: 'קבצי PDF', extensions: ['pdf'] }];
 const IMG_FILTER = [{ name: 'תמונות', extensions: ['png', 'jpg', 'jpeg'] }];
 
@@ -119,8 +151,23 @@ ipcMain.handle('open-images', async () => {
 
 ipcMain.handle('read-file', async (_e, p) => readEntry(p));
 
-ipcMain.handle('save-as', async (_e, { defaultName, bytes }) => {
-  const r = await dialog.showSaveDialog(win, { title: 'שמירת קובץ PDF', defaultPath: defaultName, filters: PDF_FILTER });
+/** שמירה לקובץ קיים: כותבים לקובץ זמני ומחליפים, כדי שתקלה באמצע לא תשאיר קובץ שבור */
+ipcMain.handle('write-file', async (_e, { target, bytes }) => {
+  if (!/\.pdf$/i.test(target)) throw new Error('אפשר לשמור רק קבצי PDF');
+  const tmp = target + '.tmp-pdfivrit';
+  await fs.writeFile(tmp, Buffer.from(bytes));
+  try {
+    await fs.rename(tmp, target);
+  } catch (e) {
+    // ב-Windows החלפה נכשלת כשהקובץ פתוח בתוכנה אחרת — מנסים כתיבה ישירה
+    try { await fs.writeFile(target, Buffer.from(bytes)); } finally { await fs.rm(tmp, { force: true }); }
+  }
+  return target;
+});
+
+ipcMain.handle('save-as', async (_e, { defaultName, bytes, near }) => {
+  const defaultPath = near ? path.join(path.dirname(near), defaultName) : defaultName;
+  const r = await dialog.showSaveDialog(win, { title: 'שמירת קובץ PDF', defaultPath, filters: PDF_FILTER });
   if (r.canceled || !r.filePath) return null;
   const target = /\.pdf$/i.test(r.filePath) ? r.filePath : r.filePath + '.pdf';
   await fs.writeFile(target, Buffer.from(bytes));
@@ -136,7 +183,6 @@ ipcMain.handle('write-files', async (_e, { folder, files }) => {
   const written = [];
   for (const f of files) {
     let target = path.join(folder, f.name);
-    // לא דורסים קבצים קיימים
     for (let n = 2; await exists(target); n++) target = path.join(folder, f.name.replace(/\.pdf$/i, ` (${n}).pdf`));
     await fs.writeFile(target, Buffer.from(f.bytes));
     written.push(target);
@@ -164,12 +210,21 @@ ipcMain.handle('read-asset', async (_e, rel) => {
 ipcMain.handle('show-in-folder', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('open-path', (_e, p) => shell.openPath(p));
 ipcMain.handle('app-version', () => app.getVersion());
+ipcMain.handle('integration-status', () => integration.status());
+ipcMain.handle('integration-set', (_e, { key, on }) => integration.set(key, on));
+ipcMain.on('set-dirty', (_e, v) => { anyDirty = !!v; });
+ipcMain.on('close-now', () => { closing = true; win.close(); });
+ipcMain.on('renderer-ready', () => {
+  rendererReady = true;
+  flush();
+});
 
 async function exists(p) {
   try { await fs.access(p); return true; } catch { return false; }
 }
 
+queue(process.argv.slice(app.isPackaged ? 1 : 2));
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-app.on('open-file', (e, p) => { e.preventDefault(); sendFiles([p]); });
+app.on('open-file', (e, p) => { e.preventDefault(); queue([p]); });

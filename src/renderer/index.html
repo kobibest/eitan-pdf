@@ -17,13 +17,7 @@
       <span class="brand-name">PDF <b>עברית</b></span>
     </div>
 
-    <nav class="views" role="tablist" aria-label="מצבי עבודה">
-      <button role="tab" data-view="organize" aria-selected="true">ארגון עמודים</button>
-      <button role="tab" data-view="edit">חתימה ומילוי</button>
-      <button role="tab" data-view="split">פיצול</button>
-      <button role="tab" data-view="extras">סימן מים ומספור</button>
-      <button role="tab" data-view="folder">תיקיית קבצים</button>
-    </nav>
+    <div class="tabs" id="tabs" role="tablist" aria-label="קבצים פתוחים"></div>
 
     <div class="top-actions">
       <button class="icon-btn" id="btn-undo" title="ביטול (Ctrl+Z)" aria-label="ביטול">
@@ -32,14 +26,16 @@
       <button class="icon-btn" id="btn-redo" title="ביצוע מחדש (Ctrl+Y)" aria-label="ביצוע מחדש">
         <svg viewBox="0 0 24 24"><path d="M10 7h7l-3-3M17 7l-3 3"/><path d="M17 7h-7a5 5 0 0 0 0 10h3"/></svg>
       </button>
-      <button class="btn btn-quiet" id="btn-open">פתיחת קבצים</button>
-      <button class="btn btn-primary" id="btn-save" disabled>שמירת PDF</button>
+      <button class="btn btn-quiet" id="btn-open" title="פתיחת קבצים (Ctrl+O)">פתיחה</button>
+      <button class="btn" id="btn-saveas" title="שמירה בשם (Ctrl+Shift+S)" disabled>שמירה בשם</button>
+      <button class="btn btn-primary" id="btn-save" title="שמירה (Ctrl+S)" disabled>שמירה</button>
     </div>
   </header>
 
   <main class="workspace">
-    <aside class="panel" id="panel"></aside>
+    <nav class="rail" id="rail" aria-label="כלים"></nav>
     <section class="desk" id="desk" tabindex="-1"></section>
+    <aside class="panel" id="panel" aria-label="אפשרויות הכלי"></aside>
   </main>
 
   <div class="drop-veil" id="drop-veil" hidden>

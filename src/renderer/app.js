@@ -39,11 +39,22 @@ const ICONS = {
   extract: '<path d="M6 3h9l4 4v14H6z"/><path d="M12 10v7M9 14l3 3 3-3"/>',
   dup: '<rect x="8" y="8" width="12" height="12" rx="1"/><path d="M16 8V4H4v12h4"/>',
   upload: '<path d="M12 15V4M8 8l4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/>',
+  merge: '<path d="M5 3h6l3 3v8H5z"/><path d="M10 10h6l3 3v8h-9z"/>',
+  form: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h4"/>',
+  stamp: '<path d="M4 20h16M6 16h12l-1-3H7z"/><path d="M10 13V9a2 2 0 1 1 4 0v4"/>',
+  windows: '<rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/>',
+  save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
+  zoomIn: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4M8.5 11h5M11 8.5v5"/>',
+  zoomOut: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4M8.5 11h5"/>',
+  fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  check: '<path d="m5 12 4.5 4.5L19 7"/>',
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
 /* =========================================================
- * מצב
+ * מצב: מסמכים בלשוניות + מצב ממשק כללי
  * ======================================================= */
 const FILE_COLORS = ['#3B6FD8', '#E0913A', '#3F9E78', '#B5517F', '#7A5BC7', '#C9A227', '#4A9BB5', '#B5654A'];
 const INK_COLORS = [
@@ -53,29 +64,71 @@ const INK_COLORS = [
   { hex: '#2F7D5B', name: 'ירוק' },
 ];
 
-const S = {
-  sources: new Map(), // id → { id, name, path, bytes, pdf, count, color, fields }
-  pages: [], // { key, src, index, rotate, w?, h? }
-  stamps: {}, // key → items
-  formValues: {}, // srcId → { fieldName: value }
-  selected: new Set(),
-  lastClicked: null,
-  view: 'organize',
-  tool: null,
-  activeItem: null,
-  thumbW: +(localStore('thumbW') || 168),
-  split: { mode: 'each', every: 2, ranges: '', cuts: new Set() },
-  extras: {
-    watermark: { enabled: false, text: 'טיוטה', size: 64, opacity: 0.16, color: '#C23A2E' },
-    pageNumbers: { enabled: false, position: 'bottom-center', format: 'עמוד {n} מתוך {total}', size: 10, skipFirst: false },
-  },
-  flattenForms: false,
-  signature: null, // dataURL פעיל
-  folder: localStore('folder') || null,
-  fonts: null,
-};
+/** הכלים בסרגל הימני. doc=true: דורש מסמך פתוח. panel=false: בלי לוח אפשרויות */
+const TOOLS = [
+  { id: 'view', label: 'צפייה', icon: 'eye', doc: true, panel: false },
+  { id: 'pages', label: 'עמודים', icon: 'grid', doc: true },
+  { id: 'merge', label: 'מיזוג', icon: 'merge', doc: true },
+  { id: 'split', label: 'פיצול', icon: 'scissors', doc: true },
+  { id: 'sign', label: 'טקסט וחתימה', icon: 'sign', doc: true },
+  { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
+  { id: 'extras', label: 'סימן מים ומספור', icon: 'stamp', doc: true },
+  { id: 'folder', label: 'תיקייה', icon: 'folder', doc: false },
+  { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true },
+];
+const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'forms']);
+
+const docs = new Map(); // id → מסמך
+let activeId = null;
 let seq = 1;
 let blankSeq = 1;
+
+function newDoc(title, path) {
+  const d = {
+    id: 'd' + seq++,
+    title: title || 'מסמך חדש',
+    path: path || null,
+    sources: new Map(), // srcId → { id, name, path, bytes, pdf, count, color, fields }
+    pages: [], // { key, src, index, rotate, w?, h? }
+    stamps: {}, // key → items
+    formValues: {}, // srcId → { fieldName: value }
+    selected: new Set(),
+    lastClicked: null,
+    undo: [],
+    redo: [],
+    dirty: false,
+    split: { mode: 'each', every: 2, ranges: '', cuts: new Set() },
+    extras: {
+      watermark: { enabled: false, text: 'טיוטה', size: 64, opacity: 0.16, color: '#C23A2E' },
+      pageNumbers: { enabled: false, position: 'bottom-center', format: 'עמוד {n} מתוך {total}', size: 10, skipFirst: false },
+    },
+    flattenForms: false,
+    scroll: 0,
+  };
+  docs.set(d.id, d);
+  return d;
+}
+const D = () => docs.get(activeId) || null;
+
+/** S: מצב ממשק כללי. שדות המסמך מועברים אוטומטית ללשונית הפעילה */
+const S = {
+  tool: 'view',
+  placing: null,
+  activeItem: null,
+  thumbW: +(localStore('thumbW') || 168),
+  zoom: 'fit',
+  signature: null,
+  folder: localStore('folder') || null,
+  fonts: null,
+  pendingImage: null,
+};
+const EMPTY = { sources: new Map(), pages: [], stamps: {}, formValues: {}, selected: new Set(), split: { mode: 'each', every: 2, ranges: '', cuts: new Set() }, extras: { watermark: {}, pageNumbers: {} } };
+for (const k of ['sources', 'pages', 'stamps', 'formValues', 'selected', 'lastClicked', 'split', 'extras', 'flattenForms']) {
+  Object.defineProperty(S, k, {
+    get: () => (D() ? D()[k] : EMPTY[k]),
+    set: (v) => { if (D()) D()[k] = v; },
+  });
+}
 
 function localStore(k, v) {
   try {
@@ -86,9 +139,7 @@ function localStore(k, v) {
   return null;
 }
 
-/* ---------- היסטוריה (ביטול/ביצוע מחדש) ---------- */
-const undoStack = [];
-const redoStack = [];
+/* ---------- היסטוריה (ביטול/ביצוע מחדש) — לכל לשונית בנפרד ---------- */
 function snapshot() {
   return JSON.stringify({ pages: S.pages, stamps: S.stamps, formValues: S.formValues, sources: [...S.sources.keys()] });
 }
@@ -100,48 +151,66 @@ function restore(snap) {
   S.selected = new Set([...S.selected].filter((k) => S.pages.some((p) => p.key === k)));
   S.activeItem = null;
 }
+function markDirty() {
+  const d = D();
+  if (d && !d.dirty) { d.dirty = true; renderTabs(); }
+  syncDirty();
+}
 function commit(mutate, opts) {
+  const d = D();
+  if (!d) return;
   const before = snapshot();
   mutate();
-  undoStack.push(before);
-  if (undoStack.length > 80) undoStack.shift();
-  redoStack.length = 0;
+  d.undo.push(before);
+  if (d.undo.length > 80) d.undo.shift();
+  d.redo.length = 0;
+  markDirty();
   if (!opts || opts.render !== false) render();
   else updateChrome();
 }
 function pushSnapshot(before) {
-  if (before === snapshot()) return;
-  undoStack.push(before);
-  redoStack.length = 0;
+  const d = D();
+  if (!d || before === snapshot()) return;
+  d.undo.push(before);
+  d.redo.length = 0;
+  markDirty();
   updateChrome();
 }
 function undo() {
-  if (!undoStack.length) return;
-  redoStack.push(snapshot());
-  restore(undoStack.pop());
+  const d = D();
+  if (!d || !d.undo.length) return;
+  d.redo.push(snapshot());
+  restore(d.undo.pop());
+  markDirty();
   render();
 }
 function redo() {
-  if (!redoStack.length) return;
-  undoStack.push(snapshot());
-  restore(redoStack.pop());
+  const d = D();
+  if (!d || !d.redo.length) return;
+  d.undo.push(snapshot());
+  restore(d.redo.pop());
+  markDirty();
   render();
 }
 
-/* =========================================================
- * עזרים
- * ======================================================= */
 const $ = (sel, root = document) => root.querySelector(sel);
+
 const h = (html) => {
   const t = document.createElement('template');
   t.innerHTML = html.trim();
   return t.content.firstElementChild;
 };
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 const baseName = (n) => String(n || 'מסמך').replace(/\.pdf$/i, '');
+
 const fmtSize = (b) => (b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
+
 const fmtDate = (ms) => new Date(ms).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: 'numeric' });
+
 const todayStr = () => new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
 const plural = (n, one, many) => (n === 1 ? one : `${n} ${many}`);
 
 function toast(msg, opts = {}) {
@@ -172,54 +241,14 @@ function pageLabel(p) {
   return `${baseName(s.name)}, עמ' ${p.index + 1}`;
 }
 
-/* =========================================================
- * טעינת קבצים
- * ======================================================= */
-async function addPdf(entry, opts = {}) {
-  const bytes = entry.bytes instanceof Uint8Array ? entry.bytes : new Uint8Array(entry.bytes);
-  let pdf;
-  try {
-    pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: bytes.slice() }).promise;
-  } catch (e) {
-    if (e && e.name === 'PasswordException') toast(`"${entry.name}" מוגן בסיסמה. הסירו את הסיסמה ונסו שוב.`, { error: true });
-    else toast(`לא הצלחנו לפתוח את "${entry.name}". ייתכן שהקובץ פגום.`, { error: true });
-    return null;
-  }
-  const id = 's' + seq++;
-  const color = FILE_COLORS[(S.sources.size) % FILE_COLORS.length];
-  const src = { id, name: entry.name, path: entry.path || null, bytes, pdf, count: pdf.numPages, color, fields: [] };
-  S.sources.set(id, src);
-  Ops.getFormFields(bytes).then((f) => { src.fields = f.filter((x) => !x.readOnly && x.page >= 0); if (src.fields.length) render(); }).catch(() => {});
-  const newPages = Array.from({ length: pdf.numPages }, (_, i) => ({ key: `${id}:${i}`, src: id, index: i, rotate: 0 }));
-  commit(() => {
-    if (opts.at != null) S.pages.splice(opts.at, 0, ...newPages);
-    else S.pages.push(...newPages);
-  }, { render: false });
-  return src;
-}
-
-async function addPdfEntries(entries) {
-  if (!entries || !entries.length) return;
-  await busy(entries.length > 1 ? `פותח ${entries.length} קבצים…` : 'פותח את הקובץ…', async () => {
-    for (const e of entries) await addPdf(e);
-  });
-  render();
-}
-
-async function openDialog() {
-  const entries = await api.openPdfs();
-  await addPdfEntries(entries);
-}
-
 async function addImages() {
   const imgs = await api.openImages();
   if (!imgs.length) return;
   await busy('ממיר תמונות לעמודים…', async () => {
     const bytes = await Ops.imagesToPdf(imgs.map((i) => ({ bytes: i.bytes })));
     const name = imgs.length === 1 ? baseName(imgs[0].name.replace(/\.(png|jpe?g)$/i, '')) + '.pdf' : `תמונות (${imgs.length}).pdf`;
-    await addPdf({ name, bytes });
-  });
-  render();
+    return { name, bytes };
+  }).then((entry) => (S.tool === 'merge' && D() ? addPdf(entry).then(render) : openEntries([entry])));
 }
 
 function addBlank() {
@@ -232,31 +261,23 @@ function addBlank() {
   });
 }
 
-function removeSource(id) {
-  const src = S.sources.get(id);
-  commit(() => {
-    S.pages = S.pages.filter((p) => p.src !== id);
-    delete S.formValues[id];
-    S.sources.delete(id);
-  });
-  toast(`"${src.name}" הוסר מהעבודה`, { action: { label: 'ביטול', run: () => { S.sources.set(id, src); undo(); } } });
-}
-
-/* =========================================================
- * רינדור עמודים (pdf.js) עם מטמון ותור
- * ======================================================= */
 const sizeCache = new Map();
+
 function sourcePageSize(p) { return sizeCache.get(p.src + ':' + p.index) || null; }
 
 const renderCache = new Map(); // key|rot|width → canvas
+
 let active = 0;
+
 const queue = [];
+
 function schedule(task) {
   return new Promise((resolve, reject) => {
     queue.push({ task, resolve, reject });
     pump();
   });
 }
+
 function pump() {
   while (active < 3 && queue.length) {
     const { task, resolve, reject } = queue.shift();
@@ -265,7 +286,6 @@ function pump() {
   }
 }
 
-/** סיבוב כולל לעמוד (מקורי + של המשתמש) */
 async function pageInfo(p) {
   if (p.src === 'blank') {
     const r = ((p.rotate % 360) + 360) % 360;
@@ -315,7 +335,6 @@ async function renderToCanvas(p, cssWidth, target, forms) {
   return { canvas: out, info, scale };
 }
 
-/** רינדור עצל: רק מה שנראה על המסך */
 const lazy = new IntersectionObserver((entries) => {
   for (const e of entries) {
     if (!e.isIntersecting) continue;
@@ -325,80 +344,8 @@ const lazy = new IntersectionObserver((entries) => {
   }
 }, { rootMargin: '600px 0px' });
 
-/* =========================================================
- * רינדור כללי
- * ======================================================= */
-function render() {
-  document.querySelectorAll('.views [role=tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === S.view)));
-  const desk = $('#desk');
-  const scrollTop = desk.scrollTop;
-  desk.innerHTML = '';
-  $('#panel').innerHTML = '';
-  if (S.view !== 'folder' && !S.pages.length) {
-    renderEmpty();
-  } else {
-    ({ organize: renderOrganize, edit: renderEdit, split: renderSplit, extras: renderExtras, folder: renderFolder })[S.view]();
-  }
-  desk.scrollTop = scrollTop;
-  updateChrome();
-}
-
-function updateChrome() {
-  $('#btn-save').disabled = !S.pages.length;
-  $('#btn-undo').disabled = !undoStack.length;
-  $('#btn-redo').disabled = !redoStack.length;
-}
-
-function setView(v) {
-  if (S.view === v) return;
-  S.view = v;
-  S.tool = null;
-  S.activeItem = null;
-  $('#desk').scrollTop = 0;
-  render();
-}
-
-/* ---------- מסך ריק ---------- */
-function renderEmpty() {
-  const desk = $('#desk');
-  const el = h(`
-    <div class="empty">
-      <div class="empty-inner">
-        <div class="empty-stack" aria-hidden="true">
-          <div class="sheet-ghost"></div>
-          <div class="sheet-ghost"></div>
-          <div class="sheet-ghost">
-            <span class="ghost-line"></span><span class="ghost-line m"></span><span class="ghost-line"></span>
-            <span class="ghost-line s"></span><span class="ghost-line m"></span>
-            <svg class="ghost-sign" viewBox="0 0 82 34"><path d="M4 26c6-12 10-18 12-17.4 2.4.6-1.6 13.2.8 13.6 2 .4 5.2-7.6 7.2-7.2 1.6.4.6 4.8 4 5.2 3.2.4 6.4-6 9.6-5.6 2.4.3 1.2 4 4 4.4 3 .4 8-3 12-3.6 3-.4 6 .8 9 .4"/></svg>
-          </div>
-        </div>
-        <h1>גררו לכאן קבצי PDF</h1>
-        <p>איחוד ופיצול מסמכים, סידור וסיבוב עמודים, מילוי טפסים וחתימה. הכל בעברית תקינה, ישירות על המחשב שלכם.</p>
-        <div class="btn-row">
-          <button class="btn btn-primary btn-lg" data-act="open">פתיחת קבצים</button>
-          <button class="btn btn-lg" data-act="folder">${icon('folder')}עיון בתיקייה</button>
-          <button class="btn btn-quiet btn-lg" data-act="images">${icon('image')}תמונות ל-PDF</button>
-        </div>
-        <p class="empty-note">הקבצים לא עולים לשום מקום. התוכנה עובדת גם בלי אינטרנט.</p>
-      </div>
-    </div>`);
-  el.querySelector('[data-act=open]').onclick = openDialog;
-  el.querySelector('[data-act=folder]').onclick = () => setView('folder');
-  el.querySelector('[data-act=images]').onclick = addImages;
-  desk.append(el);
-
-  $('#panel').append(h(`
-    <div class="group">
-      <h2>מה אפשר לעשות כאן</h2>
-      <p class="hint">פותחים קובץ אחד או כמה, ואז בוחרים למעלה מה לעשות איתם: לסדר, לחתום ולמלא, לפצל או להוסיף סימן מים ומספרי עמודים.</p>
-      <p class="hint">בסוף לוחצים על "שמירת PDF". המקור נשאר כמו שהוא.</p>
-    </div>`));
-}
-
-/* ---------- לוח קבצים (משותף) ---------- */
 function filesGroup() {
-  const g = h(`<div class="group"><h2>קבצים בעבודה</h2><ul class="files"></ul><div class="btn-row"></div></div>`);
+  const g = h(`<div class="group"><h2>קבצים במסמך</h2><ul class="files"></ul><div class="btn-row"></div></div>`);
   const ul = g.querySelector('.files');
   for (const s of S.sources.values()) {
     const inUse = S.pages.filter((p) => p.src === s.id).length;
@@ -411,61 +358,17 @@ function filesGroup() {
         </div>
         <button class="icon-btn" title="הסרה מהעבודה" aria-label="הסרת ${esc(s.name)}">${icon('x')}</button>
       </li>`);
-    li.querySelector('button').onclick = () => removeSource(s.id);
+    if (S.sources.size < 2) li.querySelector('button').remove();
+    else li.querySelector('button').onclick = () => removeSource(s.id);
     ul.append(li);
   }
   const row = g.querySelector('.btn-row');
-  const add = h(`<button class="btn">${icon('plus')}הוספת PDF</button>`);
-  add.onclick = openDialog;
+  const add = h(`<button class="btn">${icon('plus')}הוספת קובץ</button>`);
+  add.onclick = addFilesToDoc;
   const img = h(`<button class="btn">${icon('image')}תמונות</button>`);
   img.onclick = addImages;
   row.append(add, img);
   return g;
-}
-
-/* =========================================================
- * מצב: ארגון עמודים
- * ======================================================= */
-function renderOrganize() {
-  const desk = $('#desk');
-  const panel = $('#panel');
-  panel.append(filesGroup());
-
-  const sel = S.selected.size;
-  const pg = h(`
-    <div class="group">
-      <h2>פעולות על עמודים</h2>
-      <p class="hint">${sel ? `נבחרו ${plural(sel, 'עמוד אחד', 'עמודים')}.` : 'לחיצה בוחרת עמוד, Ctrl או Shift בוחרים כמה. גוררים כדי לשנות סדר.'}</p>
-      <div class="tool-grid">
-        <button class="tool" data-a="rotR" ${sel ? '' : 'disabled'}>${icon('rotR')}סיבוב ימינה</button>
-        <button class="tool" data-a="rotL" ${sel ? '' : 'disabled'}>${icon('rotL')}סיבוב שמאלה</button>
-        <button class="tool" data-a="extract" ${sel ? '' : 'disabled'}>${icon('extract')}שמירת הנבחרים</button>
-        <button class="tool" data-a="blank">${icon('pagePlus')}עמוד ריק</button>
-        <button class="tool" data-a="dup" ${sel ? '' : 'disabled'}>${icon('dup')}שכפול</button>
-        <button class="tool" data-a="del" ${sel ? '' : 'disabled'} style="${sel ? 'color:var(--stamp)' : ''}">${icon('trash')}מחיקה</button>
-      </div>
-    </div>`);
-  pg.querySelectorAll('.tool').forEach((b) => { if (b.disabled) b.style.opacity = '.45'; });
-  pg.querySelector('[data-a=rotR]').onclick = () => rotateSelected(90);
-  pg.querySelector('[data-a=rotL]').onclick = () => rotateSelected(-90);
-  pg.querySelector('[data-a=del]').onclick = deleteSelected;
-  pg.querySelector('[data-a=blank]').onclick = addBlank;
-  pg.querySelector('[data-a=dup]').onclick = duplicateSelected;
-  pg.querySelector('[data-a=extract]').onclick = () => saveDocument({ onlySelected: true });
-  panel.append(pg);
-
-  panel.append(h(`
-    <div class="group">
-      <h2>איחוד קבצים</h2>
-      <p class="hint">כל הקבצים שפתחתם כבר מסודרים כאן ברצף אחד. הלשונית הצבעונית מעל כל עמוד מראה מאיזה קובץ הוא הגיע. גררו לסדר הרצוי ולחצו "שמירת PDF".</p>
-    </div>`));
-
-  desk.append(deskBar());
-  const grid = h('<div class="grid" role="listbox" aria-multiselectable="true" aria-label="עמודים"></div>');
-  grid.style.setProperty('--thumb-w', S.thumbW + 'px');
-  S.pages.forEach((p, i) => grid.append(sheetEl(p, i)));
-  desk.append(grid);
-  wireReorder(grid);
 }
 
 function deskBar() {
@@ -559,12 +462,15 @@ function clickSelect(key, e) {
   }
   render();
 }
+
 function selectAll() { S.pages.forEach((p) => S.selected.add(p.key)); render(); }
 
 function rotateSelected(deg) {
   commit(() => S.pages.forEach((p) => { if (S.selected.has(p.key)) p.rotate = (p.rotate || 0) + deg; }));
 }
+
 function deleteSelected() { deletePages([...S.selected]); }
+
 function deletePages(keys) {
   if (!keys.length) return;
   commit(() => {
@@ -574,6 +480,7 @@ function deletePages(keys) {
   });
   toast(keys.length === 1 ? 'העמוד נמחק' : `${keys.length} עמודים נמחקו`, { action: { label: 'ביטול', run: undo } });
 }
+
 function duplicateSelected() {
   commit(() => {
     const out = [];
@@ -589,7 +496,6 @@ function duplicateSelected() {
   });
 }
 
-/* ---------- גרירה לשינוי סדר ---------- */
 function wireReorder(grid) {
   let dragKeys = null;
   let marker = null;
@@ -639,108 +545,6 @@ function wireReorder(grid) {
   });
 }
 
-/* =========================================================
- * מצב: חתימה ומילוי
- * ======================================================= */
-let editorScrollTarget = null;
-function openInEditor(key) {
-  editorScrollTarget = key;
-  setView('edit');
-}
-
-function renderEdit() {
-  const panel = $('#panel');
-  const desk = $('#desk');
-
-  const tools = h(`
-    <div class="group">
-      <h2>הוספה לעמוד</h2>
-      <p class="hint">${S.tool ? 'לחצו על המקום בעמוד שבו זה צריך להופיע.' : 'בוחרים כלי ולוחצים על המקום הרצוי בעמוד.'}</p>
-      <div class="tool-grid">
-        <button class="tool" data-t="text" aria-pressed="${S.tool === 'text'}">${icon('text')}טקסט</button>
-        <button class="tool" data-t="signature" aria-pressed="${S.tool === 'signature'}">${icon('sign')}חתימה</button>
-        <button class="tool" data-t="date" aria-pressed="${S.tool === 'date'}">${icon('date')}תאריך<small>${todayStr()}</small></button>
-        <button class="tool" data-t="rect" aria-pressed="${S.tool === 'rect'}">${icon('erase')}כיסוי לבן<small>מסתיר תוכן קיים</small></button>
-        <button class="tool" data-t="image" aria-pressed="${S.tool === 'image'}">${icon('image')}תמונה או חותמת</button>
-      </div>
-    </div>`);
-  tools.querySelectorAll('[data-t]').forEach((b) => {
-    b.onclick = async () => {
-      const t = b.dataset.t;
-      if (S.tool === t) { S.tool = null; return render(); }
-      if (t === 'signature' && !S.signature) {
-        const sig = await signatureDialog();
-        if (!sig) return;
-      }
-      if (t === 'image') {
-        const imgs = await api.openImages();
-        if (!imgs.length) return;
-        const im = imgs[0];
-        const mime = /\.png$/i.test(im.name) ? 'image/png' : 'image/jpeg';
-        S.pendingImage = await bytesToDataUrl(im.bytes, mime);
-        await preloadRatio(S.pendingImage);
-      }
-      S.tool = t;
-      render();
-    };
-  });
-  panel.append(tools);
-
-  // חתימות שמורות
-  const saved = savedSignatures();
-  const sg = h(`<div class="group"><h2>החתימות שלי</h2><div class="sig-saved"></div><div class="btn-row"><button class="btn">${icon('sign')}חתימה חדשה</button></div></div>`);
-  const wrap = sg.querySelector('.sig-saved');
-  if (!saved.length) wrap.replaceWith(h('<p class="hint">עוד לא שמרתם חתימה. חתימה שתיצרו תישמר כאן לפעם הבאה, רק במחשב הזה.</p>'));
-  saved.forEach((d, i) => {
-    const chip = h(`<button class="sig-chip" aria-pressed="${S.signature === d}" title="שימוש בחתימה הזו"><img alt="חתימה ${i + 1}" src="${d}"><span class="x" role="button" aria-label="מחיקת החתימה">×</span></button>`);
-    chip.onclick = (e) => {
-      if (e.target.classList.contains('x')) {
-        const list = savedSignatures().filter((x) => x !== d);
-        localStore('signatures', JSON.stringify(list));
-        if (S.signature === d) S.signature = null;
-        return render();
-      }
-      S.signature = d;
-      S.tool = 'signature';
-      render();
-    };
-    wrap.append(chip);
-  });
-  sg.querySelector('.btn-row .btn').onclick = async () => { if (await signatureDialog()) { S.tool = 'signature'; render(); } };
-  panel.append(sg);
-
-  // שדות טופס
-  const withFields = [...S.sources.values()].filter((s) => s.fields.length && S.pages.some((p) => p.src === s.id));
-  if (withFields.length) {
-    const fg = h(`<div class="group"><h2>שדות טופס</h2><p class="hint">ממלאים ישירות על הדף, או בוחרים שדה מהרשימה כדי לקפוץ אליו.</p><div class="field-list"></div>
-      <label class="check"><input type="checkbox" ${S.flattenForms ? 'checked' : ''}><span>נעילת הטופס בשמירה<small>השדות יהפכו לטקסט רגיל שלא ניתן לשנות</small></span></label></div>`);
-    const list = fg.querySelector('.field-list');
-    for (const s of withFields) {
-      for (const f of s.fields) {
-        const v = fieldValue(s.id, f);
-        const shown = f.type === 'CheckBox' ? (v ? 'מסומן' : 'לא מסומן') : v || 'ריק';
-        const b = h(`<button><span class="fname">${esc(f.name)}</span><span class="fval ${v ? '' : 'none'}">${esc(shown)}</span></button>`);
-        b.onclick = () => {
-          const inp = desk.querySelector(`[data-field="${CSS.escape(s.id + '|' + f.name)}"]`);
-          if (inp) { inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); inp.focus({ preventScroll: true }); }
-          else { editorScrollTarget = `${s.id}:${f.page}`; scrollToEditorPage(); }
-        };
-        list.append(b);
-      }
-    }
-    fg.querySelector('input').onchange = (e) => { S.flattenForms = e.target.checked; };
-    panel.append(fg);
-  }
-
-  // עמודים
-  const col = h('<div class="pages-column"></div>');
-  const deskW = desk.clientWidth || 900;
-  const maxW = Math.min(880, deskW - 150);
-  S.pages.forEach((p, i) => col.append(editorPage(p, i, maxW)));
-  desk.append(col);
-  if (editorScrollTarget) scrollToEditorPage();
-}
-
 function scrollToEditorPage() {
   const el = $(`#desk .page-frame[data-key="${CSS.escape(editorScrollTarget)}"]`);
   editorScrollTarget = null;
@@ -748,12 +552,13 @@ function scrollToEditorPage() {
 }
 
 function editorPage(p, i, maxW) {
-  const frame = h(`<div class="page-frame" data-key="${esc(p.key)}"><span class="page-label">${i + 1}</span><canvas></canvas><div class="overlay ${S.tool ? 'placing' : ''}"></div></div>`);
+  const frame = h(`<div class="page-frame" data-key="${esc(p.key)}"><span class="page-label">${i + 1}</span><canvas></canvas><div class="overlay ${S.placing ? 'placing' : ''}"></div></div>`);
   const sz = p.src === 'blank' ? { w: p.w, h: p.h } : sourcePageSize(p) || { w: 595, h: 842 };
   const rot = (((p.rotate || 0) % 180) + 180) % 180;
   const vw = rot ? sz.h : sz.w;
   const vh = rot ? sz.w : sz.h;
-  let scale = Math.min(maxW / vw, 1.6);
+  const fitScale = (w) => (S.zoom === 'fit' ? Math.min(maxW / w, 2) : S.zoom);
+  let scale = fitScale(vw);
   frame.style.width = vw * scale + 'px';
   frame.style.height = vh * scale + 'px';
   const overlay = frame.querySelector('.overlay');
@@ -762,7 +567,7 @@ function editorPage(p, i, maxW) {
 
   frame.__render = async () => {
     const info = await pageInfo(p);
-    scale = Math.min(maxW / info.viewW, 1.6);
+    scale = fitScale(info.viewW);
     ctx.scale = scale; ctx.vw = info.viewW; ctx.vh = info.viewH;
     frame.style.width = info.viewW * scale + 'px';
     frame.style.height = info.viewH * scale + 'px';
@@ -775,10 +580,12 @@ function editorPage(p, i, maxW) {
 
   overlay.addEventListener('pointerdown', (e) => {
     if (e.target !== overlay) return;
-    if (!S.tool) {
+    if (!S.placing) {
       if (S.activeItem) { S.activeItem = null; refreshItems(); }
       return;
     }
+    // מונעים מהדפדפן להעביר פוקוס אחרי הלחיצה — אחרת תיבת הטקסט החדשה מאבדת פוקוס ונמחקת
+    e.preventDefault();
     const r = overlay.getBoundingClientRect();
     placeItem(ctx, (e.clientX - r.left) / ctx.scale, (e.clientY - r.top) / ctx.scale);
   });
@@ -789,19 +596,19 @@ function placeItem(ctx, x, y) {
   const { p } = ctx;
   let item;
   const id = 'i' + seq++;
-  if (S.tool === 'text' || S.tool === 'date') {
+  if (S.placing === 'text' || S.placing === 'date') {
     const size = 14;
-    item = { id, type: 'text', text: S.tool === 'date' ? todayStr() : '', size, color: INK_COLORS[0].hex, w: S.tool === 'date' ? 110 : 220, align: 'right', bold: false };
+    item = { id, type: 'text', text: S.placing === 'date' ? todayStr() : '', size, color: INK_COLORS[0].hex, w: S.placing === 'date' ? 110 : 220, align: 'right', bold: false };
     item.x = Math.max(0, Math.min(ctx.vw - item.w, x - item.w + 10));
     item.y = Math.max(0, y - size * 0.75);
-  } else if (S.tool === 'signature' || S.tool === 'image') {
-    const src = S.tool === 'signature' ? S.signature : S.pendingImage;
+  } else if (S.placing === 'signature' || S.placing === 'image') {
+    const src = S.placing === 'signature' ? S.signature : S.pendingImage;
     const ratio = imageRatio(src);
-    const w = S.tool === 'signature' ? 150 : 120;
+    const w = S.placing === 'signature' ? 150 : 120;
     item = { id, type: 'image', image: src, w, h: w * ratio };
     item.x = Math.max(0, Math.min(ctx.vw - w, x - w / 2));
     item.y = Math.max(0, Math.min(ctx.vh - item.h, y - item.h / 2));
-  } else if (S.tool === 'rect') {
+  } else if (S.placing === 'rect') {
     item = { id, type: 'rect', color: '#ffffff', w: 160, h: 40 };
     item.x = Math.max(0, x - 80);
     item.y = Math.max(0, y - 20);
@@ -809,19 +616,23 @@ function placeItem(ctx, x, y) {
   commit(() => {
     (S.stamps[p.key] = S.stamps[p.key] || []).push(item);
     S.activeItem = { key: p.key, id };
-    S.tool = null;
+    S.placing = null;
   });
   if (item.type === 'text') {
-    const ta = $(`#desk .item[data-id="${id}"] textarea`);
-    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    setTimeout(() => {
+      const ta = $(`#desk .item[data-id="${id}"] textarea`);
+      if (ta) { ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    }, 0);
   }
 }
 
 const ratioCache = new Map();
+
 function imageRatio(src) {
   if (ratioCache.has(src)) return ratioCache.get(src);
   return 0.4;
 }
+
 function preloadRatio(src) {
   return new Promise((res) => {
     const img = new Image();
@@ -836,9 +647,25 @@ function refreshItems() {
 }
 
 function drawItems(ctx) {
-  const { p, overlay, scale } = ctx;
-  overlay.querySelectorAll('.item').forEach((n) => n.remove());
-  for (const it of S.stamps[p.key] || []) overlay.append(itemEl(ctx, it));
+  const { p, overlay } = ctx;
+  const items = S.stamps[p.key] || [];
+  const focused = document.activeElement;
+  // פריט שהמשתמש עובד עליו כרגע (תיבת טקסט בפוקוס) לא נבנה מחדש — רק מעדכנים מיקום וגודל
+  let keep = null;
+  overlay.querySelectorAll('.item').forEach((n) => {
+    if (focused && n.contains(focused) && items.some((it) => it.id === n.dataset.id)) keep = n;
+    else n.remove();
+  });
+  for (const it of items) {
+    if (keep && keep.dataset.id === it.id) {
+      keep.style.left = it.x * ctx.scale + 'px';
+      keep.style.top = it.y * ctx.scale + 'px';
+      keep.style.width = it.w * ctx.scale + 'px';
+      const ta = keep.querySelector('textarea');
+      if (ta) ta.style.fontSize = it.size * ctx.scale + 'px';
+      // לא מזיזים אותו ב-DOM — הזזה מעבירה פוקוס
+    } else overlay.append(itemEl(ctx, it));
+  }
 }
 
 function itemEl(ctx, it) {
@@ -866,13 +693,18 @@ function itemEl(ctx, it) {
     });
     ta.addEventListener('input', () => { it.text = ta.value; fit(); });
     ta.addEventListener('blur', () => {
-      if (!it.text.trim()) {
-        // תיבה ריקה — מסירים בלי להשאיר היסטוריה
-        S.stamps[p.key] = (S.stamps[p.key] || []).filter((x) => x.id !== it.id);
-        el.remove();
-        return;
-      }
-      if (before) pushSnapshot(before);
+      // הבדיקה נדחית: אם התיבה רק נבנתה מחדש (רינדור), היא לא באמת נעזבה
+      setTimeout(() => {
+        if (!el.isConnected || el.contains(document.activeElement)) return;
+        if (!it.text.trim()) {
+          // המשתמש עזב תיבה ריקה — מסירים בלי להשאיר היסטוריה
+          S.stamps[p.key] = (S.stamps[p.key] || []).filter((x) => x.id !== it.id);
+          if (S.activeItem && S.activeItem.id === it.id) S.activeItem = null;
+          el.remove();
+          return;
+        }
+        if (before) { pushSnapshot(before); before = null; }
+      }, 0);
     });
     el.append(ta);
   } else if (it.type === 'image') {
@@ -988,7 +820,6 @@ function deleteActiveItem() {
   });
 }
 
-/* ---------- שדות טופס על הדף ---------- */
 function fieldValue(srcId, f) {
   const vals = S.formValues[srcId];
   return vals && f.name in vals ? vals[f.name] : f.value;
@@ -1038,7 +869,6 @@ function drawFields(ctx, info) {
   }
 }
 
-/* ---------- חתימה ---------- */
 function savedSignatures() {
   try { return JSON.parse(localStore('signatures') || '[]'); } catch (e) { return []; }
 }
@@ -1250,9 +1080,6 @@ function bytesToDataUrl(bytes, mime) {
   });
 }
 
-/* =========================================================
- * מצב: פיצול
- * ======================================================= */
 function splitGroups() {
   const n = S.pages.length;
   const sp = S.split;
@@ -1352,9 +1179,6 @@ async function doSplit(groups) {
   }
 }
 
-/* =========================================================
- * מצב: סימן מים ומספור
- * ======================================================= */
 function renderExtras() {
   const panel = $('#panel');
   const desk = $('#desk');
@@ -1404,6 +1228,7 @@ function renderExtras() {
 }
 
 let previewToken = 0;
+
 async function renderPreview(wrap) {
   const token = ++previewToken;
   const pages = S.pages.slice(0, Math.min(2, S.pages.length));
@@ -1433,17 +1258,15 @@ async function renderPreview(wrap) {
   }
 }
 
-/* =========================================================
- * מצב: תיקיית קבצים — תמונות ממוזערות של כל קבצי ה-PDF בתיקייה
- * ======================================================= */
 const folderThumbs = new Map(); // path|mtime → canvas
+
 async function renderFolder() {
   const panel = $('#panel');
   const desk = $('#desk');
   const g = h(`
     <div class="group">
       <h2>עיון בתיקייה</h2>
-      <p class="hint">רואים את העמוד הראשון של כל קובץ PDF בתיקייה. לחיצה מוסיפה את הקובץ לעבודה.</p>
+      <p class="hint">רואים את העמוד הראשון של כל קובץ PDF בתיקייה. לחיצה פותחת את הקובץ בלשונית חדשה.</p>
       <button class="btn btn-block">${icon('folder')}${S.folder ? 'החלפת תיקייה' : 'בחירת תיקייה'}</button>
     </div>`);
   g.querySelector('button').onclick = async () => {
@@ -1451,7 +1274,6 @@ async function renderFolder() {
     if (f) { S.folder = f; localStore('folder', f); render(); }
   };
   panel.append(g);
-  if (S.pages.length) panel.append(filesGroup());
 
   if (!S.folder) {
     desk.append(h(`<div class="empty"><div class="empty-inner"><h1>בחרו תיקייה</h1><p>התוכנה תציג תמונה ממוזערת של העמוד הראשון בכל קובץ PDF שבה, כדי שתמצאו מסמך במבט אחד.</p></div></div>`));
@@ -1468,13 +1290,13 @@ async function renderFolder() {
     desk.append(h('<div class="empty"><div class="empty-inner"><h1>התיקייה לא נמצאה</h1><p>ייתכן שהיא נמחקה או הועברה. בחרו תיקייה אחרת.</p></div></div>'));
     return;
   }
-  if (S.view !== 'folder') return;
+  if (S.tool !== 'folder') return;
   if (!files.length) {
     desk.append(h('<div class="empty"><div class="empty-inner"><h1>אין כאן קבצי PDF</h1><p>בחרו תיקייה אחרת מהלוח בצד.</p></div></div>'));
     return;
   }
   head.prepend(h(`<strong style="white-space:nowrap">${plural(files.length, 'קובץ אחד', 'קבצים')}</strong>`));
-  const inWork = new Set([...S.sources.values()].map((s) => s.path).filter(Boolean));
+  const inWork = new Set([...docs.values()].map((d) => d.path).filter(Boolean));
   const grid = h('<div class="doc-grid"></div>');
   for (const f of files) {
     const added = inWork.has(f.path);
@@ -1485,16 +1307,13 @@ async function renderFolder() {
           <span class="doc-name">${esc(baseName(f.name))}</span>
           <span class="doc-meta">${fmtDate(f.mtime)}, ${fmtSize(f.size)}</span>
         </button>
-        ${added ? '<span class="badge">בעבודה</span>' : ''}
+        ${added ? '<span class="badge">פתוח</span>' : ''}
       </div>`);
     const btn = el.querySelector('.doc');
     btn.onclick = async () => {
-      if (inWork.has(f.path)) return toast('הקובץ כבר בעבודה');
       const entry = await api.readFile(f.path);
-      await addPdfEntries([entry]);
-      toast(`"${f.name}" נוסף לעבודה`, { action: { label: 'מעבר לעמודים', run: () => setView('organize') } });
+      await openEntries([entry], { tool: 'view' });
     };
-    btn.ondblclick = () => api.openPath(f.path);
     el.__render = async () => {
       const ck = f.path + '|' + f.mtime;
       let c = folderThumbs.get(ck);
@@ -1532,15 +1351,6 @@ async function renderFolder() {
   desk.append(grid);
 }
 
-/* =========================================================
- * שמירה
- * ======================================================= */
-function defaultName() {
-  const first = S.sources.values().next().value;
-  if (!first) return 'מסמך.pdf';
-  return S.sources.size > 1 ? `${baseName(first.name)} - מאוחד.pdf` : `${baseName(first.name)} - ערוך.pdf`;
-}
-
 async function buildBytes(pages, opts = {}) {
   const sources = {};
   for (const s of S.sources.values()) sources[s.id] = s.bytes;
@@ -1557,25 +1367,6 @@ async function buildBytes(pages, opts = {}) {
   return out;
 }
 
-async function saveDocument(opts = {}) {
-  if (!S.pages.length) return;
-  document.activeElement && document.activeElement.blur && document.activeElement.blur();
-  const pages = opts.onlySelected ? S.pages.filter((p) => S.selected.has(p.key)) : S.pages;
-  if (!pages.length) return;
-  try {
-    const bytes = await busy('מכין את הקובץ…', () => buildBytes(pages));
-    const name = opts.onlySelected ? `${baseName(defaultName())} - עמודים נבחרים.pdf` : defaultName();
-    const path = await api.saveAs(name, bytes);
-    if (path) toast('הקובץ נשמר', { action: { label: 'פתיחה', run: () => api.openPath(path) } });
-  } catch (e) {
-    console.error(e);
-    toast('השמירה נכשלה: ' + e.message, { error: true });
-  }
-}
-
-/* =========================================================
- * אודות
- * ======================================================= */
 async function about() {
   const v = await api.appVersion();
   const back = h(`
@@ -1593,32 +1384,685 @@ async function about() {
   $('#modal-root').append(back);
 }
 
+function isTyping() {
+  const a = document.activeElement;
+  return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable) && a.type !== 'checkbox' && a.type !== 'radio' && a.type !== 'range';
+}
+
+
+/* =========================================================
+ * פתיחת קבצים ולשוניות
+ * ======================================================= */
+/** טעינת קובץ PDF לתוך מסמך (ברירת מחדל: הלשונית הפעילה) */
+async function addPdf(entry, opts = {}) {
+  const doc = opts.doc || D() || newDoc(baseName(entry.name), entry.path);
+  const bytes = entry.bytes instanceof Uint8Array ? entry.bytes : new Uint8Array(entry.bytes);
+  let pdf;
+  try {
+    pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: bytes.slice() }).promise;
+  } catch (e) {
+    if (e && e.name === 'PasswordException') toast(`"${entry.name}" מוגן בסיסמה. הסירו את הסיסמה ונסו שוב.`, { error: true });
+    else toast(`לא הצלחנו לפתוח את "${entry.name}". ייתכן שהקובץ פגום.`, { error: true });
+    return null;
+  }
+  const id = 's' + seq++;
+  const color = FILE_COLORS[doc.sources.size % FILE_COLORS.length];
+  const src = { id, name: entry.name, path: entry.path || null, bytes, pdf, count: pdf.numPages, color, fields: [] };
+  doc.sources.set(id, src);
+  Ops.getFormFields(bytes).then((f) => {
+    src.fields = f.filter((x) => !x.readOnly && x.page >= 0);
+    if (src.fields.length && doc.id === activeId) render();
+  }).catch(() => {});
+  const newPages = Array.from({ length: pdf.numPages }, (_, i) => ({ key: `${id}:${i}`, src: id, index: i, rotate: 0 }));
+  if (opts.initial) {
+    doc.pages.push(...newPages);
+  } else {
+    const prev = activeId;
+    activeId = doc.id;
+    commit(() => { doc.pages.push(...newPages); }, { render: false });
+    activeId = prev;
+  }
+  return src;
+}
+
+/** כל קובץ נפתח בלשונית משלו. קובץ שכבר פתוח — עוברים אליו */
+async function openEntries(entries, opts = {}) {
+  if (!entries || !entries.length) return;
+  let last = null;
+  await busy(entries.length > 1 ? `פותח ${entries.length} קבצים…` : 'פותח את הקובץ…', async () => {
+    for (const e of entries) {
+      const existing = e.path && [...docs.values()].find((d) => d.path && d.path === e.path);
+      if (existing) { last = existing; continue; }
+      const d = newDoc(baseName(e.name), e.path || null);
+      const ok = await addPdf(e, { doc: d, initial: true });
+      if (!ok) { docs.delete(d.id); continue; }
+      last = d;
+    }
+  });
+  if (last) activate(last.id, opts.tool || (S.tool === 'folder' || S.tool === 'windows' ? 'view' : S.tool));
+  else render();
+}
+
+/** מיזוג: כל הקבצים בלשונית חדשה אחת */
+async function openMerged(entries) {
+  if (!entries.length) return;
+  const d = newDoc('מיזוג חדש', null);
+  await busy(`ממזג ${entries.length} קבצים…`, async () => {
+    for (const e of entries) await addPdf(e, { doc: d, initial: true });
+  });
+  if (!d.sources.size) { docs.delete(d.id); return render(); }
+  d.dirty = true;
+  activate(d.id, 'merge');
+}
+
+async function openDialog() {
+  const entries = await api.openPdfs();
+  await openEntries(entries);
+}
+
+/** הוספת קבצים למסמך הפעיל (מיזוג) */
+async function addFilesToDoc() {
+  const entries = await api.openPdfs();
+  if (!entries.length) return;
+  if (!D()) return openEntries(entries);
+  await busy('מוסיף קבצים…', async () => { for (const e of entries) await addPdf(e); });
+  render();
+}
+
+/** מיזוג לשונית פתוחה אחרת לתוך הלשונית הפעילה */
+async function mergeTabInto(otherId) {
+  const other = docs.get(otherId);
+  const d = D();
+  if (!other || !d || other === d) return;
+  const remap = new Map();
+  commit(() => {
+    for (const s of other.sources.values()) {
+      const id = 's' + seq++;
+      remap.set(s.id, id);
+      d.sources.set(id, { ...s, id, color: FILE_COLORS[d.sources.size % FILE_COLORS.length] });
+    }
+    for (const p of other.pages) {
+      const np = { ...p };
+      if (p.src !== 'blank') { np.src = remap.get(p.src); np.key = `${np.src}:${p.index}`; }
+      else np.key = `blank:${blankSeq++}`;
+      if (other.stamps[p.key]) d.stamps[np.key] = JSON.parse(JSON.stringify(other.stamps[p.key]));
+      d.pages.push(np);
+    }
+    for (const [sid, vals] of Object.entries(other.formValues)) if (remap.has(sid)) d.formValues[remap.get(sid)] = { ...vals };
+  });
+  toast(`"${other.title}" מוזג לסוף המסמך`);
+}
+
+function removeSource(id) {
+  const src = S.sources.get(id);
+  commit(() => {
+    S.pages = S.pages.filter((p) => p.src !== id);
+    delete S.formValues[id];
+  });
+  toast(`"${baseName(src.name)}" הוסר מהמסמך`, { action: { label: 'ביטול', run: undo } });
+}
+
+function activate(id, tool) {
+  const cur = D();
+  if (cur) cur.scroll = $('#desk').scrollTop;
+  activeId = id;
+  if (tool) S.tool = tool;
+  S.placing = null;
+  S.activeItem = null;
+  render();
+  const d = D();
+  if (d) requestAnimationFrame(() => { $('#desk').scrollTop = d.scroll || 0; });
+}
+
+async function closeTab(id) {
+  const d = docs.get(id);
+  if (!d) return;
+  if (d.dirty) {
+    const choice = await confirmDialog(`לשמור את השינויים ב"${d.title}"?`, 'אם לא תשמרו, השינויים יאבדו.', [
+      { id: 'save', label: 'שמירה', primary: true },
+      { id: 'discard', label: 'בלי לשמור' },
+      { id: 'cancel', label: 'ביטול', quiet: true },
+    ]);
+    if (choice === 'cancel' || !choice) return;
+    if (choice === 'save') {
+      const prev = activeId;
+      activeId = id;
+      const ok = await saveDocument();
+      if (!ok) { activeId = prev; return; }
+      activeId = prev;
+    }
+  }
+  const ids = [...docs.keys()];
+  const idx = ids.indexOf(id);
+  for (const s of d.sources.values()) { try { s.pdf.destroy(); } catch (e) { /* כבר נסגר */ } }
+  docs.delete(id);
+  if (activeId === id) {
+    const rest = [...docs.keys()];
+    activeId = rest[Math.min(idx, rest.length - 1)] || null;
+  }
+  syncDirty();
+  render();
+}
+
+function confirmDialog(title, body, buttons) {
+  return new Promise((resolve) => {
+    const back = h(`
+      <div class="modal-back"><div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="cf-t" style="width:min(460px,100%)">
+        <header><h2 id="cf-t">${esc(title)}</h2></header>
+        <div class="body"><p>${esc(body)}</p></div>
+        <footer></footer>
+      </div></div>`);
+    const foot = back.querySelector('footer');
+    for (const b of buttons) {
+      const el = h(`<button class="btn ${b.primary ? 'btn-primary' : ''} ${b.quiet ? 'btn-quiet push' : ''}">${esc(b.label)}</button>`);
+      el.onclick = () => { back.remove(); resolve(b.id); };
+      foot.append(el);
+    }
+    back.addEventListener('keydown', (e) => { if (e.key === 'Escape') { back.remove(); resolve('cancel'); } });
+    $('#modal-root').append(back);
+    foot.querySelector('.btn-primary')?.focus();
+  });
+}
+
+function syncDirty() {
+  api.setDirty([...docs.values()].some((d) => d.dirty));
+}
+
+/* =========================================================
+ * רינדור כללי: לשוניות, סרגל כלים, לוח אפשרויות, שולחן
+ * ======================================================= */
+function render() {
+  const d = D();
+  const tool = TOOLS.find((t) => t.id === S.tool) || TOOLS[0];
+  if (tool.doc && !d) S.tool = tool.id; // נשאר — מוצג מסך ריק
+  renderTabs();
+  renderRail();
+  const desk = $('#desk');
+  const panel = $('#panel');
+  const keepScroll = desk.scrollTop;
+  desk.innerHTML = '';
+  panel.innerHTML = '';
+  const needsDoc = tool.doc && (!d || !d.pages.length);
+  const showPanel = !needsDoc && tool.panel !== false;
+  document.body.classList.toggle('no-panel', !showPanel);
+  if (needsDoc) {
+    if (d && !d.pages.length) renderEmptyDoc();
+    else renderEmpty();
+  } else {
+    ({
+      view: renderView, pages: renderPages, merge: renderMerge, split: renderSplit, sign: renderSign,
+      forms: renderForms, extras: renderExtras, folder: renderFolder, windows: renderWindows,
+    })[S.tool]();
+  }
+  desk.scrollTop = keepScroll;
+  updateChrome();
+}
+
+function updateChrome() {
+  const d = D();
+  $('#btn-save').disabled = !d || !d.pages.length;
+  $('#btn-saveas').disabled = !d || !d.pages.length;
+  $('#btn-undo').disabled = !d || !d.undo.length;
+  $('#btn-redo').disabled = !d || !d.redo.length;
+  document.title = d ? `${d.title}${d.dirty ? ' •' : ''} — PDF עברית` : 'PDF עברית';
+}
+
+function setView(v) {
+  if (S.tool === v) return;
+  const cur = D();
+  if (cur) cur.scroll = 0;
+  S.tool = v;
+  S.placing = null;
+  S.activeItem = null;
+  $('#desk').scrollTop = 0;
+  render();
+}
+
+function renderTabs() {
+  const bar = $('#tabs');
+  bar.innerHTML = '';
+  for (const d of docs.values()) {
+    const on = d.id === activeId;
+    const t = h(`
+      <div class="tab ${on ? 'on' : ''}" role="tab" aria-selected="${on}" title="${esc(d.path || d.title)}">
+        <button class="tab-name" ${on ? 'tabindex="-1"' : ''}>${d.dirty ? '<span class="dot" aria-label="לא נשמר"></span>' : ''}<span class="tab-text">${esc(d.title)}</span></button>
+        <button class="tab-x" aria-label="סגירת ${esc(d.title)}" title="סגירה">${icon('x')}</button>
+      </div>`);
+    t.querySelector('.tab-name').onclick = () => { if (!on) activate(d.id); };
+    t.querySelector('.tab-name').addEventListener('auxclick', (e) => { if (e.button === 1) closeTab(d.id); });
+    t.querySelector('.tab-x').onclick = (e) => { e.stopPropagation(); closeTab(d.id); };
+    bar.append(t);
+  }
+  const plus = h(`<button class="tab-plus" title="פתיחת קובץ (Ctrl+O)" aria-label="פתיחת קובץ">${icon('plus')}</button>`);
+  plus.onclick = openDialog;
+  bar.append(plus);
+}
+
+function renderRail() {
+  const rail = $('#rail');
+  rail.innerHTML = '';
+  const d = D();
+  const top = h('<div class="rail-group"></div>');
+  const bottom = h('<div class="rail-group rail-bottom"></div>');
+  for (const t of TOOLS) {
+    const disabled = t.doc && (!d || !d.pages.length);
+    const b = h(`<button class="rail-btn" aria-pressed="${S.tool === t.id}" ${disabled ? 'disabled' : ''}>${icon(t.icon)}<span>${esc(t.label)}</span></button>`);
+    b.onclick = () => setView(t.id);
+    (t.bottom ? bottom : top).append(b);
+  }
+  rail.append(top, bottom);
+}
+
+/* ---------- מסכים ריקים ---------- */
+function renderEmpty() {
+  const desk = $('#desk');
+  const el = h(`
+    <div class="empty">
+      <div class="empty-inner">
+        <div class="empty-stack" aria-hidden="true">
+          <div class="sheet-ghost"></div>
+          <div class="sheet-ghost"></div>
+          <div class="sheet-ghost">
+            <span class="ghost-line"></span><span class="ghost-line m"></span><span class="ghost-line"></span>
+            <span class="ghost-line s"></span><span class="ghost-line m"></span>
+            <svg class="ghost-sign" viewBox="0 0 82 34"><path d="M4 26c6-12 10-18 12-17.4 2.4.6-1.6 13.2.8 13.6 2 .4 5.2-7.6 7.2-7.2 1.6.4.6 4.8 4 5.2 3.2.4 6.4-6 9.6-5.6 2.4.3 1.2 4 4 4.4 3 .4 8-3 12-3.6 3-.4 6 .8 9 .4"/></svg>
+          </div>
+        </div>
+        <h1>גררו לכאן קבצי PDF</h1>
+        <p>כל קובץ נפתח בלשונית משלו. משם אפשר לחתום, למלא טפסים, למזג, לפצל ולסדר עמודים, בעברית תקינה.</p>
+        <div class="btn-row">
+          <button class="btn btn-primary btn-lg" data-act="open">פתיחת קבצים</button>
+          <button class="btn btn-lg" data-act="folder">${icon('folder')}עיון בתיקייה</button>
+          <button class="btn btn-quiet btn-lg" data-act="images">${icon('image')}תמונות ל-PDF</button>
+        </div>
+        <p class="empty-note">הקבצים לא עולים לשום מקום. התוכנה עובדת גם בלי אינטרנט.</p>
+      </div>
+    </div>`);
+  el.querySelector('[data-act=open]').onclick = openDialog;
+  el.querySelector('[data-act=folder]').onclick = () => setView('folder');
+  el.querySelector('[data-act=images]').onclick = addImages;
+  desk.append(el);
+}
+
+function renderEmptyDoc() {
+  const el = h(`<div class="empty"><div class="empty-inner"><h1>אין עמודים במסמך</h1><p>כל העמודים נמחקו. אפשר לבטל (Ctrl+Z) או להוסיף קובץ.</p><div class="btn-row"><button class="btn btn-primary btn-lg">${icon('plus')}הוספת קובץ</button></div></div></div>`);
+  el.querySelector('button').onclick = addFilesToDoc;
+  $('#desk').append(el);
+}
+
+/* =========================================================
+ * עמודים (סידור/סיבוב/מחיקה) ומיזוג
+ * ======================================================= */
+function pageGrid() {
+  const desk = $('#desk');
+  desk.append(deskBar());
+  const grid = h('<div class="grid" role="listbox" aria-multiselectable="true" aria-label="עמודים"></div>');
+  grid.style.setProperty('--thumb-w', S.thumbW + 'px');
+  S.pages.forEach((p, i) => grid.append(sheetEl(p, i)));
+  desk.append(grid);
+  wireReorder(grid);
+}
+
+function renderPages() {
+  const panel = $('#panel');
+  const sel = S.selected.size;
+  const pg = h(`
+    <div class="group">
+      <h2>עמודים</h2>
+      <p class="hint">${sel ? `נבחרו ${plural(sel, 'עמוד אחד', 'עמודים')}.` : 'לחיצה בוחרת עמוד, Ctrl או Shift בוחרים כמה. גוררים כדי לשנות סדר, לחיצה כפולה פותחת את העמוד.'}</p>
+      <div class="tool-grid">
+        <button class="tool" data-a="rotR" ${sel ? '' : 'disabled'}>${icon('rotR')}סיבוב ימינה</button>
+        <button class="tool" data-a="rotL" ${sel ? '' : 'disabled'}>${icon('rotL')}סיבוב שמאלה</button>
+        <button class="tool" data-a="dup" ${sel ? '' : 'disabled'}>${icon('dup')}שכפול</button>
+        <button class="tool tool-danger" data-a="del" ${sel ? '' : 'disabled'}>${icon('trash')}מחיקה</button>
+        <button class="tool" data-a="extract" ${sel ? '' : 'disabled'}>${icon('extract')}שמירת הנבחרים כקובץ</button>
+        <button class="tool" data-a="blank">${icon('pagePlus')}עמוד ריק</button>
+      </div>
+    </div>`);
+  pg.querySelector('[data-a=rotR]').onclick = () => rotateSelected(90);
+  pg.querySelector('[data-a=rotL]').onclick = () => rotateSelected(-90);
+  pg.querySelector('[data-a=del]').onclick = deleteSelected;
+  pg.querySelector('[data-a=blank]').onclick = addBlank;
+  pg.querySelector('[data-a=dup]').onclick = duplicateSelected;
+  pg.querySelector('[data-a=extract]').onclick = () => saveAs({ onlySelected: true });
+  panel.append(pg);
+  pageGrid();
+}
+
+function renderMerge() {
+  const panel = $('#panel');
+  panel.append(filesGroup());
+  const others = [...docs.values()].filter((d) => d.id !== activeId && d.pages.length);
+  if (others.length) {
+    const g = h('<div class="group"><h2>מיזוג לשונית פתוחה</h2><p class="hint">העמודים שלה יתווספו לסוף המסמך הזה.</p><div class="merge-list"></div></div>');
+    const list = g.querySelector('.merge-list');
+    for (const o of others) {
+      const b = h(`<button class="merge-item">${icon('plus')}<span>${esc(o.title)}</span><small>${plural(o.pages.length, 'עמוד אחד', 'עמודים')}</small></button>`);
+      b.onclick = () => mergeTabInto(o.id);
+      list.append(b);
+    }
+    panel.append(g);
+  }
+  panel.append(h(`
+    <div class="group">
+      <p class="hint">הלשונית הצבעונית מעל כל עמוד מראה מאיזה קובץ הגיע. גוררים עמודים לסדר הרצוי ושומרים.</p>
+    </div>`));
+  pageGrid();
+}
+
+/* =========================================================
+ * צפייה, טקסט וחתימה, טפסים — עמודים בגלילה
+ * ======================================================= */
+let editorScrollTarget = null;
+function openInEditor(key) {
+  editorScrollTarget = key;
+  setView('view');
+  if (editorScrollTarget) scrollToEditorPage();
+}
+
+function pageColumn() {
+  const desk = $('#desk');
+  const bar = h(`
+    <div class="desk-bar view-bar">
+      <span class="page-count">${plural(S.pages.length, 'עמוד אחד', 'עמודים')}</span>
+      <span class="spacer"></span>
+      <div class="zoom" role="group" aria-label="זום">
+        <button class="icon-btn" data-z="out" title="הקטנה (Ctrl -)" aria-label="הקטנה">${icon('zoomOut')}</button>
+        <span class="zoom-val">${S.zoom === 'fit' ? 'רוחב' : Math.round(S.zoom * 100) + '%'}</span>
+        <button class="icon-btn" data-z="in" title="הגדלה (Ctrl +)" aria-label="הגדלה">${icon('zoomIn')}</button>
+        <button class="icon-btn ${S.zoom === 'fit' ? 'on' : ''}" data-z="fit" title="התאמה לרוחב" aria-label="התאמה לרוחב">${icon('fit')}</button>
+      </div>
+    </div>`);
+  bar.querySelectorAll('[data-z]').forEach((b) => (b.onclick = () => zoom(b.dataset.z)));
+  desk.append(bar);
+  const col = h('<div class="pages-column"></div>');
+  const deskW = desk.clientWidth || 900;
+  const maxW = Math.max(320, Math.min(1000, deskW - 120));
+  S.pages.forEach((p, i) => col.append(editorPage(p, i, maxW)));
+  desk.append(col);
+  if (editorScrollTarget) scrollToEditorPage();
+}
+
+/** זום: יחסית לגודל הנוכחי של העמוד הראשון שנראה */
+function zoom(dir) {
+  if (dir === 'fit') S.zoom = 'fit';
+  else {
+    const frame = $('#desk .page-frame');
+    const cur = S.zoom === 'fit' ? (frame && frame.__ctx ? frame.__ctx.scale : 1) : S.zoom;
+    const steps = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+    S.zoom = dir === 'in' ? steps.find((s) => s > cur + 0.01) || 3 : [...steps].reverse().find((s) => s < cur - 0.01) || 0.5;
+  }
+  const desk = $('#desk');
+  const ratio = desk.scrollTop / Math.max(1, desk.scrollHeight);
+  render();
+  desk.scrollTop = ratio * desk.scrollHeight;
+}
+
+function renderView() {
+  pageColumn();
+}
+
+function signTools() {
+  const tools = h(`
+    <div class="group">
+      <h2>הוספה לעמוד</h2>
+      <p class="hint">${S.placing ? 'לחצו על המקום בעמוד שבו זה צריך להופיע. Esc לביטול.' : 'בוחרים כלי ולוחצים על המקום הרצוי בעמוד.'}</p>
+      <div class="tool-grid">
+        <button class="tool" data-t="text" aria-pressed="${S.placing === 'text'}">${icon('text')}טקסט</button>
+        <button class="tool" data-t="signature" aria-pressed="${S.placing === 'signature'}">${icon('sign')}חתימה</button>
+        <button class="tool" data-t="date" aria-pressed="${S.placing === 'date'}">${icon('date')}תאריך<small>${todayStr()}</small></button>
+        <button class="tool" data-t="rect" aria-pressed="${S.placing === 'rect'}">${icon('erase')}כיסוי לבן<small>מסתיר תוכן קיים</small></button>
+        <button class="tool" data-t="image" aria-pressed="${S.placing === 'image'}">${icon('image')}תמונה או חותמת</button>
+      </div>
+    </div>`);
+  tools.querySelectorAll('[data-t]').forEach((b) => {
+    b.onclick = async () => {
+      const t = b.dataset.t;
+      if (S.placing === t) { S.placing = null; return render(); }
+      if (t === 'signature' && !S.signature) {
+        const sig = await signatureDialog();
+        if (!sig) return;
+      }
+      if (t === 'image') {
+        const imgs = await api.openImages();
+        if (!imgs.length) return;
+        const im = imgs[0];
+        const mime = /\.png$/i.test(im.name) ? 'image/png' : 'image/jpeg';
+        S.pendingImage = await bytesToDataUrl(im.bytes, mime);
+        await preloadRatio(S.pendingImage);
+      }
+      S.placing = t;
+      render();
+    };
+  });
+  return tools;
+}
+
+function signaturesGroup() {
+  const saved = savedSignatures();
+  const sg = h(`<div class="group"><h2>החתימות שלי</h2><div class="sig-saved"></div><div class="btn-row"><button class="btn">${icon('sign')}חתימה חדשה</button></div></div>`);
+  const wrap = sg.querySelector('.sig-saved');
+  if (!saved.length) wrap.replaceWith(h('<p class="hint">עוד לא שמרתם חתימה. חתימה שתיצרו תישמר כאן לפעם הבאה, רק במחשב הזה.</p>'));
+  saved.forEach((dataUrl, i) => {
+    const chip = h(`<button class="sig-chip" aria-pressed="${S.signature === dataUrl}" title="שימוש בחתימה הזו"><img alt="חתימה ${i + 1}" src="${dataUrl}"><span class="x" role="button" aria-label="מחיקת החתימה">×</span></button>`);
+    chip.onclick = (e) => {
+      if (e.target.classList.contains('x')) {
+        const list = savedSignatures().filter((x) => x !== dataUrl);
+        localStore('signatures', JSON.stringify(list));
+        if (S.signature === dataUrl) S.signature = null;
+        return render();
+      }
+      S.signature = dataUrl;
+      S.placing = 'signature';
+      render();
+    };
+    wrap.append(chip);
+  });
+  sg.querySelector('.btn-row .btn').onclick = async () => { if (await signatureDialog()) { S.placing = 'signature'; render(); } };
+  return sg;
+}
+
+function renderSign() {
+  const panel = $('#panel');
+  panel.append(signTools(), signaturesGroup());
+  pageColumn();
+}
+
+function renderForms() {
+  const panel = $('#panel');
+  const desk = $('#desk');
+  const withFields = [...S.sources.values()].filter((s) => s.fields.length && S.pages.some((p) => p.src === s.id));
+  if (!withFields.length) {
+    panel.append(h('<div class="group"><h2>טפסים</h2><p class="hint">אין במסמך הזה שדות טופס למילוי. כדי לכתוב על טופס סרוק או רגיל, השתמשו ב"טקסט וחתימה".</p></div>'));
+    const b = h(`<button class="btn btn-block">${icon('text')}מעבר לטקסט וחתימה</button>`);
+    b.onclick = () => setView('sign');
+    panel.firstElementChild.append(b);
+  } else {
+    const fg = h(`<div class="group"><h2>שדות טופס</h2><p class="hint">ממלאים ישירות על הדף, או בוחרים שדה מהרשימה כדי לקפוץ אליו.</p><div class="field-list"></div>
+      <label class="check"><input type="checkbox" ${S.flattenForms ? 'checked' : ''}><span>נעילת הטופס בשמירה<small>השדות יהפכו לטקסט רגיל שלא ניתן לשנות</small></span></label></div>`);
+    const list = fg.querySelector('.field-list');
+    for (const s of withFields) {
+      for (const f of s.fields) {
+        const v = fieldValue(s.id, f);
+        const shown = f.type === 'CheckBox' ? (v ? 'מסומן' : 'לא מסומן') : v || 'ריק';
+        const b = h(`<button><span class="fname">${esc(f.name)}</span><span class="fval ${v ? '' : 'none'}">${esc(shown)}</span></button>`);
+        b.onclick = () => {
+          const inp = desk.querySelector(`[data-field="${CSS.escape(s.id + '|' + f.name)}"]`);
+          if (inp) { inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); inp.focus({ preventScroll: true }); }
+          else { editorScrollTarget = `${s.id}:${f.page}`; scrollToEditorPage(); }
+        };
+        list.append(b);
+      }
+    }
+    fg.querySelector('input').onchange = (e) => { S.flattenForms = e.target.checked; markDirty(); };
+    panel.append(fg);
+  }
+  pageColumn();
+}
+
+/* =========================================================
+ * שילוב ב-Windows: קליק ימני, תמונות ממוזערות, תוכנת ברירת מחדל
+ * ======================================================= */
+async function renderWindows() {
+  const desk = $('#desk');
+  const wrap = h('<div class="settings"><h1>שילוב ב-Windows</h1><p class="lead">התוכנה יכולה להתחבר לסייר הקבצים, כך שלא צריך לפתוח אותה כדי להגיע לפעולות הנפוצות. כל ההגדרות כאן חלות רק על המשתמש שלכם, ולא דורשות הרשאות מנהל.</p><div class="cards"><p class="hint">בודק את המצב הנוכחי…</p></div></div>');
+  desk.append(wrap);
+  let st;
+  try { st = await api.integrationStatus(); } catch (e) { st = { supported: false, error: e.message }; }
+  if (S.tool !== 'windows') return;
+  const cards = wrap.querySelector('.cards');
+  cards.innerHTML = '';
+  if (!st.supported) {
+    cards.append(h(`<p class="hint">${esc(st.error || 'האפשרויות האלה זמינות רק ב-Windows.')}</p>`));
+    return;
+  }
+  const card = (key, title, body, on, note) => {
+    const c = h(`
+      <section class="card ${on ? 'on' : ''}">
+        <div class="card-text">
+          <h2>${esc(title)}${on ? `<span class="pill">${icon('check')}פעיל</span>` : ''}</h2>
+          <p>${body}</p>
+          ${note ? `<p class="note">${note}</p>` : ''}
+        </div>
+        <button class="btn ${on ? 'btn-danger' : 'btn-primary'}">${on ? 'הסרה' : 'הפעלה'}</button>
+      </section>`);
+    c.querySelector('button').onclick = async () => {
+      const res = await busy(on ? 'מסיר…' : 'מגדיר…', () => api.integrationSet(key, !on));
+      if (res && res.error) toast(res.error, { error: true });
+      else toast(on ? 'הוסר' : 'הופעל. ייתכן שצריך לפתוח מחדש את חלון הסייר.');
+      render();
+    };
+    return c;
+  };
+  cards.append(
+    card('context', 'קליק ימני על קבצי PDF',
+      'בלחיצה ימנית על קובץ PDF אחד או כמה יופיעו "פתיחה", "מיזוג" ו"פיצול" ב-PDF עברית. מסמנים כמה קבצים ובוחרים "מיזוג" כדי לאחד אותם.',
+      st.context, 'ב-Windows 11 הפעולות נמצאות תחת "הצגת אפשרויות נוספות".'),
+    card('thumbs', 'תמונות ממוזערות בסייר הקבצים',
+      'הסייר יציג את העמוד הראשון של כל קובץ PDF במקום אייקון, בתצוגת "סמלים גדולים".',
+      st.thumbs, 'ניסיוני. אם תוכנה אחרת כבר מציגה תמונות ממוזערות ל-PDF, ההגדרה הזו תחליף אותה. לפעמים צריך לנקות את מטמון התמונות של Windows (ניקוי דיסק) כדי לראות את השינוי.'),
+    card('default', 'פתיחת PDF בתוכנה הזו',
+      'מוסיף את PDF עברית לרשימת "פתח באמצעות". Windows לא מאפשר לתוכנות לקבוע את עצמן כברירת מחדל, לכן אחרי ההפעלה ייפתח חלון ההגדרות של Windows ושם בוחרים בה.',
+      st.default, null),
+  );
+  if (st.installedPath) wrap.append(h(`<p class="hint install-note">כדי שהשילוב ימשיך לעבוד גם אם הקובץ שהורדתם יימחק, התוכנה הועתקה אל <bdi dir="ltr">${esc(st.installedPath)}</bdi>.</p>`));
+}
+
+/* =========================================================
+ * שמירה
+ * ======================================================= */
+function defaultName() {
+  const d = D();
+  if (!d) return 'מסמך.pdf';
+  return `${d.title}.pdf`;
+}
+
+/** שמירה לקובץ הנוכחי (דורס). מסמך בלי קובץ מקור — שמירה בשם */
+async function saveDocument() {
+  const d = D();
+  if (!d || !d.pages.length) return false;
+  if (!d.path) return saveAs();
+  document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  try {
+    const bytes = await busy('שומר…', () => buildBytes(S.pages));
+    await api.writeFile(d.path, bytes);
+    d.dirty = false;
+    syncDirty();
+    renderTabs();
+    updateChrome();
+    toast(`נשמר: ${d.title}.pdf`);
+    return true;
+  } catch (e) {
+    console.error(e);
+    const locked = /EBUSY|EPERM|EACCES/.test(String(e.message));
+    toast(locked ? 'לא הצלחנו לשמור: הקובץ פתוח בתוכנה אחרת או מוגן מכתיבה. סגרו אותו ונסו שוב, או השתמשו ב"שמירה בשם".' : 'השמירה נכשלה: ' + e.message, { error: true });
+    return false;
+  }
+}
+
+async function saveAs(opts = {}) {
+  const d = D();
+  if (!d || !d.pages.length) return false;
+  document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  const pages = opts.onlySelected ? S.pages.filter((p) => S.selected.has(p.key)) : S.pages;
+  if (!pages.length) return false;
+  try {
+    const bytes = await busy('מכין את הקובץ…', () => buildBytes(pages));
+    const name = opts.onlySelected ? `${d.title} - עמודים נבחרים.pdf` : defaultName();
+    const path = await api.saveAs(name, bytes, d.path);
+    if (!path) return false;
+    if (!opts.onlySelected) {
+      d.path = path;
+      d.title = baseName(path.split(/[\\/]/).pop());
+      d.dirty = false;
+      syncDirty();
+      renderTabs();
+      updateChrome();
+    }
+    toast('הקובץ נשמר', { action: { label: 'פתיחה בתיקייה', run: () => api.showInFolder(path) } });
+    return true;
+  } catch (e) {
+    console.error(e);
+    toast('השמירה נכשלה: ' + e.message, { error: true });
+    return false;
+  }
+}
+
 /* =========================================================
  * אירועים כלליים
  * ======================================================= */
 function wire() {
-  document.querySelectorAll('.views [role=tab]').forEach((b) => (b.onclick = () => setView(b.dataset.view)));
   $('#btn-open').onclick = openDialog;
   $('#btn-save').onclick = () => saveDocument();
+  $('#btn-saveas').onclick = () => saveAs();
   $('#btn-undo').onclick = undo;
   $('#btn-redo').onclick = redo;
 
-  api.onOpenFiles(async (paths) => {
+  // בקשות פתיחה מבחוץ: לחיצה כפולה על קובץ, קליק ימני (פתיחה/מיזוג/פיצול)
+  api.onOpenRequest(async ({ mode, paths }) => {
     const entries = [];
     for (const p of paths) { try { entries.push(await api.readFile(p)); } catch (e) { toast(`לא הצלחנו לקרוא את ${p}`, { error: true }); } }
-    await addPdfEntries(entries);
+    if (!entries.length) return;
+    if (mode === 'merge' && entries.length > 1) await openMerged(entries);
+    else await openEntries(entries, { tool: mode === 'split' ? 'split' : mode === 'merge' ? 'merge' : 'view' });
   });
   api.onMenu((cmd) => {
     if (cmd === 'open') openDialog();
     else if (cmd === 'save') saveDocument();
+    else if (cmd === 'save-as') saveAs();
+    else if (cmd === 'close-tab') { if (activeId) closeTab(activeId); }
     else if (cmd === 'undo') { if (!isTyping()) undo(); else document.execCommand('undo'); }
     else if (cmd === 'redo') { if (!isTyping()) redo(); else document.execCommand('redo'); }
-    else if (cmd === 'select-all') { if (isTyping()) document.execCommand('selectAll'); else if (S.view === 'organize') selectAll(); }
-    else if (cmd === 'zoom-in' || cmd === 'zoom-out') {
-      S.thumbW = Math.max(110, Math.min(300, S.thumbW + (cmd === 'zoom-in' ? 24 : -24)));
-      localStore('thumbW', String(S.thumbW));
-      render();
+    else if (cmd === 'select-all') { if (isTyping()) document.execCommand('selectAll'); else if (S.tool === 'pages' || S.tool === 'merge') selectAll(); }
+    else if (cmd === 'zoom-in' || cmd === 'zoom-out' || cmd === 'zoom-fit') {
+      if (PAGE_COLUMN_TOOLS.has(S.tool)) zoom(cmd === 'zoom-in' ? 'in' : cmd === 'zoom-out' ? 'out' : 'fit');
+      else {
+        S.thumbW = Math.max(110, Math.min(300, S.thumbW + (cmd === 'zoom-in' ? 24 : -24)));
+        localStore('thumbW', String(S.thumbW));
+        render();
+      }
     } else if (cmd === 'about') about();
+    else if (cmd === 'next-tab' || cmd === 'prev-tab') {
+      const ids = [...docs.keys()];
+      if (ids.length < 2) return;
+      const i = ids.indexOf(activeId);
+      activate(ids[(i + (cmd === 'next-tab' ? 1 : -1) + ids.length) % ids.length]);
+    }
+  });
+  api.onBeforeClose(async () => {
+    for (const d of [...docs.values()]) {
+      if (!d.dirty) continue;
+      activate(d.id);
+      const choice = await confirmDialog(`לשמור את השינויים ב"${d.title}"?`, 'התוכנה נסגרת. אם לא תשמרו, השינויים יאבדו.', [
+        { id: 'save', label: 'שמירה', primary: true },
+        { id: 'discard', label: 'בלי לשמור' },
+        { id: 'cancel', label: 'ביטול', quiet: true },
+      ]);
+      if (choice === 'cancel' || !choice) return;
+      if (choice === 'save' && !(await saveDocument())) return;
+      d.dirty = false;
+    }
+    api.closeNow();
   });
 
   document.addEventListener('keydown', (e) => {
@@ -1628,10 +2072,10 @@ function wire() {
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (S.view === 'edit' && S.activeItem) { e.preventDefault(); deleteActiveItem(); }
-      else if (S.view === 'organize' && S.selected.size) { e.preventDefault(); deleteSelected(); }
+      if (PAGE_COLUMN_TOOLS.has(S.tool) && S.activeItem) { e.preventDefault(); deleteActiveItem(); }
+      else if ((S.tool === 'pages' || S.tool === 'merge') && S.selected.size) { e.preventDefault(); deleteSelected(); }
     } else if (e.key === 'Escape') {
-      if (S.tool) { S.tool = null; render(); }
+      if (S.placing) { S.placing = null; render(); }
       else if (S.activeItem) { S.activeItem = null; refreshItems(); }
       else if (S.selected.size) { S.selected.clear(); render(); }
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
@@ -1660,17 +2104,15 @@ function wire() {
       entries.push({ name: imgs.length === 1 ? baseName(imgs[0].name.replace(/\.(png|jpe?g)$/i, '')) + '.pdf' : `תמונות (${imgs.length}).pdf`, bytes: await Ops.imagesToPdf(imBytes) });
     }
     if (!entries.length) return toast('אפשר לגרור לכאן רק קבצי PDF או תמונות (PNG, JPG)', { error: true });
-    if (S.view === 'folder') S.view = 'organize';
-    await addPdfEntries(entries);
+    // גרירה למצב מיזוג — מוסיפים למסמך הפעיל. אחרת — לשוניות חדשות
+    if (S.tool === 'merge' && D()) {
+      await busy('מוסיף קבצים…', async () => { for (const en of entries) await addPdf(en); });
+      render();
+    } else await openEntries(entries);
   });
 
   let rt;
-  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.view === 'edit') render(); }, 200); });
-}
-
-function isTyping() {
-  const a = document.activeElement;
-  return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable) && a.type !== 'checkbox' && a.type !== 'radio' && a.type !== 'range';
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (PAGE_COLUMN_TOOLS.has(S.tool) && S.zoom === 'fit') render(); }, 200); });
 }
 
 /* =========================================================
@@ -1685,5 +2127,6 @@ function isTyping() {
   S.fonts = { regular, bold };
   await Promise.all(savedSignatures().map(preloadRatio));
   render();
-  window.__app = { S, render, setView, openInEditor, commit, saveDocument, buildBytes }; // לבדיקות אוטומטיות
+  api.rendererReady();
+  window.__app = { S, docs, D, render, setView, openInEditor, commit, saveDocument, buildBytes, activate }; // לבדיקות אוטומטיות
 })();
