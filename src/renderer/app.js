@@ -79,7 +79,6 @@ const TOOLS = [
   { id: 'pages', label: 'עמודים', icon: 'grid', doc: true },
   { id: 'sign', label: 'טקסט וחתימה', icon: 'sign', doc: true },
   { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
-  { id: 'folder', label: 'תיקייה', icon: 'folder', doc: false },
   { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true },
 ];
 const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'forms']);
@@ -126,7 +125,6 @@ const S = {
   zoom: 'fit', // 'fit' = התאמה לרוחב, 'page' = עמוד שלם, או מספר
   layout: ['single', 'continuous', 'two'].includes(localStore('layout')) ? localStore('layout') : 'continuous',
   signature: null,
-  folder: localStore('folder') || null,
   fonts: null,
   pendingImage: null,
   pagesMode: 'arrange', // בתוך "עמודים": סידור / מיזוג / פיצול / סימן מים ומספור
@@ -140,6 +138,7 @@ const PAGES_MODES = [
 /** כלים ישנים (מיזוג/פיצול/סימון) הם עכשיו מצבים בתוך "עמודים" */
 function normalizeTool(t) {
   if (t === 'merge' || t === 'split' || t === 'extras') { S.pagesMode = t; return 'pages'; }
+  if (t === 'folder') return 'view'; // כלי שהוסר
   return t;
 }
 const inMerge = () => S.tool === 'pages' && S.pagesMode === 'merge';
@@ -226,10 +225,6 @@ const h = (html) => {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const baseName = (n) => String(n || 'מסמך').replace(/\.pdf$/i, '');
-
-const fmtSize = (b) => (b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
-
-const fmtDate = (ms) => new Date(ms).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: 'numeric' });
 
 const todayStr = () => new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -1320,99 +1315,6 @@ async function renderPreview(wrap) {
   }
 }
 
-const folderThumbs = new Map(); // path|mtime → canvas
-
-async function renderFolder() {
-  const panel = $('#panel');
-  const desk = $('#desk');
-  const g = h(`
-    <div class="group">
-      <h2>עיון בתיקייה</h2>
-      <p class="hint">רואים את העמוד הראשון של כל קובץ PDF בתיקייה. לחיצה פותחת את הקובץ בלשונית חדשה.</p>
-      <button class="btn btn-block">${icon('folder')}${S.folder ? 'החלפת תיקייה' : 'בחירת תיקייה'}</button>
-    </div>`);
-  g.querySelector('button').onclick = async () => {
-    const f = await api.chooseFolder('בחירת תיקייה עם קבצי PDF');
-    if (f) { S.folder = f; localStore('folder', f); render(); }
-  };
-  panel.append(g);
-
-  if (!S.folder) {
-    desk.append(h(`<div class="empty"><div class="empty-inner"><h1>בחרו תיקייה</h1><p>התוכנה תציג תמונה ממוזערת של העמוד הראשון בכל קובץ PDF שבה, כדי שתמצאו מסמך במבט אחד.</p></div></div>`));
-    const b = h(`<button class="btn btn-primary btn-lg">${icon('folder')}בחירת תיקייה</button>`);
-    b.onclick = g.querySelector('button').onclick;
-    desk.querySelector('.empty-inner').append(b);
-    return;
-  }
-
-  const head = h(`<div class="folder-head"><span class="folder-path" title="${esc(S.folder)}">${esc(S.folder)}</span></div>`);
-  desk.append(head);
-  let files;
-  try { files = await api.listPdfs(S.folder); } catch (e) {
-    desk.append(h('<div class="empty"><div class="empty-inner"><h1>התיקייה לא נמצאה</h1><p>ייתכן שהיא נמחקה או הועברה. בחרו תיקייה אחרת.</p></div></div>'));
-    return;
-  }
-  if (S.tool !== 'folder') return;
-  if (!files.length) {
-    desk.append(h('<div class="empty"><div class="empty-inner"><h1>אין כאן קבצי PDF</h1><p>בחרו תיקייה אחרת מהלוח בצד.</p></div></div>'));
-    return;
-  }
-  head.prepend(h(`<strong style="white-space:nowrap">${plural(files.length, 'קובץ אחד', 'קבצים')}</strong>`));
-  const inWork = new Set([...docs.values()].map((d) => d.path).filter(Boolean));
-  const grid = h('<div class="doc-grid"></div>');
-  for (const f of files) {
-    const added = inWork.has(f.path);
-    const el = h(`
-      <div style="position:relative">
-        <button class="doc ${added ? 'added' : ''}" title="${esc(f.name)}">
-          <div class="paper"><span class="loading" style="width:100%;height:100%"></span></div>
-          <span class="doc-name">${esc(baseName(f.name))}</span>
-          <span class="doc-meta">${fmtDate(f.mtime)}, ${fmtSize(f.size)}</span>
-        </button>
-        ${added ? '<span class="badge">פתוח</span>' : ''}
-      </div>`);
-    const btn = el.querySelector('.doc');
-    btn.onclick = async () => {
-      const entry = await api.readFile(f.path);
-      await openEntries([entry], { tool: 'view' });
-    };
-    el.__render = async () => {
-      const ck = f.path + '|' + f.mtime;
-      let c = folderThumbs.get(ck);
-      if (!c) {
-        try {
-          c = await schedule(async () => {
-            const entry = await api.readFile(f.path);
-            const pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: entry.bytes }).promise;
-            const pg = await pdf.getPage(1);
-            const vp1 = pg.getViewport({ scale: 1 });
-            const dpr = window.devicePixelRatio || 1;
-            const vp = pg.getViewport({ scale: (180 / Math.max(vp1.width, vp1.height * 0.707)) * dpr });
-            const cv = document.createElement('canvas');
-            cv.width = vp.width; cv.height = vp.height;
-            const ctx = cv.getContext('2d');
-            ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-            await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-            pdf.destroy();
-            return cv;
-          });
-          folderThumbs.set(ck, c);
-        } catch (e) {
-          el.querySelector('.paper').replaceChildren(h('<span style="padding:12px;line-height:1.4;font-size:12px;color:var(--ink-3)">לא ניתן להציג (מוגן או פגום)</span>'));
-          return;
-        }
-      }
-      const out = document.createElement('canvas');
-      out.width = c.width; out.height = c.height;
-      out.getContext('2d').drawImage(c, 0, 0);
-      el.querySelector('.paper').replaceChildren(out);
-    };
-    lazy.observe(el);
-    grid.append(el);
-  }
-  desk.append(grid);
-}
-
 async function buildBytes(pages, opts = {}) {
   const sources = {};
   for (const s of S.sources.values()) sources[s.id] = s.bytes;
@@ -1547,7 +1449,7 @@ async function openEntries(entries, opts = {}) {
       last = d;
     }
   });
-  if (last) activate(last.id, opts.tool || (S.tool === 'folder' || S.tool === 'windows' ? 'view' : S.tool));
+  if (last) activate(last.id, opts.tool || (S.tool === 'windows' ? 'view' : S.tool));
   else render();
 }
 
@@ -1699,7 +1601,7 @@ function render() {
   } else {
     ({
       view: renderView, pages: renderPages, sign: renderSign,
-      forms: renderForms, folder: renderFolder, windows: renderWindows,
+      forms: renderForms, windows: renderWindows,
     })[S.tool]();
   }
   desk.scrollTop = keepScroll;
@@ -1777,14 +1679,12 @@ function renderEmpty() {
         <p>כל קובץ נפתח בלשונית משלו. משם אפשר לחתום, למלא טפסים, למזג, לפצל ולסדר עמודים, בעברית תקינה.</p>
         <div class="btn-row">
           <button class="btn btn-primary btn-lg" data-act="open">פתיחת קבצים</button>
-          <button class="btn btn-lg" data-act="folder">${icon('folder')}עיון בתיקייה</button>
           <button class="btn btn-quiet btn-lg" data-act="images">${icon('image')}תמונות ל-PDF</button>
         </div>
         <p class="empty-note">הקבצים לא עולים לשום מקום. התוכנה עובדת גם בלי אינטרנט.</p>
       </div>
     </div>`);
   el.querySelector('[data-act=open]').onclick = openDialog;
-  el.querySelector('[data-act=folder]').onclick = () => setView('folder');
   el.querySelector('[data-act=images]').onclick = addImages;
   desk.append(el);
 }
