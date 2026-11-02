@@ -212,18 +212,6 @@ ipcMain.handle('write-files', async (_e, { folder, files }) => {
   return written;
 });
 
-ipcMain.handle('list-pdfs', async (_e, folder) => {
-  const entries = await fs.readdir(folder, { withFileTypes: true });
-  const out = [];
-  for (const e of entries) {
-    if (!e.isFile() || !/\.pdf$/i.test(e.name)) continue;
-    const full = path.join(folder, e.name);
-    const st = await fs.stat(full);
-    out.push({ name: e.name, path: full, size: st.size, mtime: st.mtimeMs });
-  }
-  return out.sort((a, b) => b.mtime - a.mtime);
-});
-
 ipcMain.handle('read-asset', async (_e, rel) => {
   const safe = path.normalize(rel).replace(/^(\.\.[/\\])+/, '');
   return new Uint8Array(await fs.readFile(path.join(__dirname, 'assets', safe)));
