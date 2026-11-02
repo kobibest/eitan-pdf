@@ -32,6 +32,25 @@ app.whenReady().then(async () => {
     if (s.js) {
       try { await js(s.js); } catch (e) { errors.push('step error: ' + e.message); }
     }
+    if (s.click) {
+      const [x, y] = s.click;
+      win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+      win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+      win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+      await wait(300);
+    }
+    if (s.type) {
+      for (const ch of s.type) win.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+      await wait(200);
+    }
+    if (s.key) {
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: s.key });
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: s.key });
+      await wait(200);
+    }
+    if (s.eval) {
+      try { errors.push('eval: ' + JSON.stringify(await js(s.eval))); } catch (e) { errors.push('eval error: ' + e.message); }
+    }
     if (s.saveTo) {
       try {
         const arr = await js(`__app.buildBytes(__app.S.pages).then((b) => Array.from(b))`);

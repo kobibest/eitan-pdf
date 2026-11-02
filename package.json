@@ -1,6 +1,6 @@
 {
   "name": "pdf-ivrit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "תוכנה חינמית ומקומית לעבודה עם PDF בעברית: איחוד, פיצול, סידור, מילוי טפסים וחתימה",
   "main": "main.js",
   "scripts": {
@@ -79,6 +79,24 @@
     },
     "portable": {
       "artifactName": "PDF-Ivrit-${version}-portable.exe"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "native/thumbs/dist",
+        "to": "native/thumbs",
+        "filter": [
+          "*.dll",
+          "LICENSE*"
+        ]
+      },
+      {
+        "from": "native/thumbs/dist-arm64",
+        "to": "native/thumbs-arm64",
+        "filter": [
+          "*.dll",
+          "LICENSE*"
+        ]
+      }
+    ]
   }
 }
