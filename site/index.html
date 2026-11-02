@@ -177,6 +177,41 @@
   footer a { color: #C9D6F5; }
   .foot-links { display: flex; gap: 18px; }
 
+  /* ---------- לייטבוקס הרשמה לעדכונים ---------- */
+  .nl { border: 0; padding: 0; border-radius: 18px; width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; color: var(--ink); box-shadow: 0 40px 90px -20px rgba(8,30,99,.6); }
+  .nl::backdrop { background: rgba(8,30,99,.55); }
+  .nl[open] { animation: nl-in .22s ease-out; }
+  @keyframes nl-in { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .nl[open] { animation: none; } }
+  .nl-head { background: var(--navy); color: #fff; padding: 26px 28px 22px; position: relative; }
+  .nl-head h2 { margin: 0 0 6px; font-size: 24px; line-height: 1.3; }
+  .nl-head p { margin: 0; color: #C9D6F5; font-size: 16px; }
+  .nl-done-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.12); color: #fff; font-size: 14px; font-weight: 600; padding: 3px 12px; border-radius: 20px; margin-bottom: 12px; }
+  .nl-done-badge[hidden] { display: none; }
+  .nl-done-badge::before { content: '✓'; color: var(--gold); font-weight: 700; }
+  .nl-x { position: absolute; top: 12px; inset-inline-end: 12px; width: 36px; height: 36px; border-radius: 50%; border: 0; background: rgba(255,255,255,.1); color: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
+  .nl-x:hover { background: rgba(255,255,255,.2); }
+  .nl-body { padding: 22px 28px 24px; }
+  .nl-f { margin-bottom: 12px; }
+  .nl-f label { display: block; font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+  .nl-f label small { font-weight: 400; color: var(--ink-3); }
+  .nl-f input { width: 100%; height: 48px; border: 1.5px solid var(--line); border-radius: 10px; padding: 0 14px; font: inherit; font-size: 16px; background: #fff; }
+  .nl-f input:focus { border-color: var(--royal); outline: none; box-shadow: 0 0 0 3px var(--wash); }
+  .nl-f input[type=email] { direction: ltr; text-align: right; }
+  .nl-consent { display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; line-height: 1.55; color: var(--ink-2); margin: 4px 0 16px; cursor: pointer; }
+  .nl-consent input { width: 19px; height: 19px; margin: 2px 0 0; flex: none; accent-color: var(--royal); }
+  .nl .btn { width: 100%; justify-content: center; height: 50px; font-size: 17px; }
+  .nl-skip { display: block; margin: 10px auto 0; background: none; border: 0; color: var(--ink-3); font: inherit; font-size: 14.5px; cursor: pointer; text-decoration: underline; }
+  .nl-fine { margin: 14px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); }
+  .nl-err { display: none; background: #F8E7E5; color: #8A2A21; border-radius: 8px; padding: 9px 12px; font-size: 14.5px; margin-bottom: 12px; }
+  .nl-err.show { display: block; }
+  .nl-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .nl-ok { text-align: center; padding: 8px 0 4px; }
+  .nl-ok .ic { width: 58px; height: 58px; border-radius: 50%; background: #E3F3EA; color: var(--good); display: grid; place-items: center; font-size: 30px; font-weight: 700; margin: 0 auto 12px; }
+  .nl-ok h3 { margin: 0 0 6px; font-size: 22px; }
+  .nl-ok p { margin: 0 0 16px; color: var(--ink-2); }
+  .foot-nl { background: none; border: 0; padding: 0; font: inherit; color: #C9D6F5; text-decoration: underline; cursor: pointer; }
+
   @media (max-width: 900px) {
     .grid { grid-template-columns: 1fr 1fr; }
     .feat.wide { grid-column: span 2; grid-template-columns: 1fr; }
@@ -421,9 +456,37 @@
 <footer>
   <div class="wrap">
     <span>איתןPDF נבנתה על ידי <a href="https://m-eitan.co.il">קובי איתן</a>. קוד פתוח ברישיון MIT.</span>
-    <span class="foot-links"><a href="https://github.com/kobibest/eitan-pdf">GitHub</a><a href="https://github.com/kobibest/eitan-pdf/releases">כל הגרסאות</a><a href="mailto:kobi@eitan-m.co.il">יצירת קשר</a></span>
+    <span class="foot-links"><button type="button" class="foot-nl" data-nl-open>עדכונים במייל</button><a href="/privacy">פרטיות</a><a href="https://github.com/kobibest/eitan-pdf">GitHub</a><a href="https://github.com/kobibest/eitan-pdf/releases">כל הגרסאות</a><a href="mailto:kobi@eitan-m.co.il">יצירת קשר</a></span>
   </div>
 </footer>
+
+<dialog class="nl" id="nl" aria-labelledby="nl-title">
+  <div class="nl-head">
+    <button type="button" class="nl-x" data-nl-close aria-label="סגירה">×</button>
+    <span class="nl-done-badge" id="nl-badge" hidden>ההורדה התחילה</span>
+    <h2 id="nl-title">רוצים לדעת כשיוצאת גרסה חדשה?</h2>
+    <p id="nl-sub">השאירו מייל, ונשלח הודעה קצרה כשיש גרסה חדשה, עם מה שהשתנה וקישור להורדה.</p>
+  </div>
+  <div class="nl-body">
+    <form id="nl-form" novalidate>
+      <div class="nl-err" id="nl-err" role="alert"></div>
+      <div class="nl-f"><label for="nl-name">שם <small>(לא חובה)</small></label><input id="nl-name" name="name" type="text" autocomplete="given-name" maxlength="60"></div>
+      <div class="nl-f"><label for="nl-email">כתובת מייל</label><input id="nl-email" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="254" placeholder="name@example.com"></div>
+      <div class="nl-hp" aria-hidden="true"><label for="nl-website">אתר</label><input id="nl-website" name="website" type="text" tabindex="-1" autocomplete="off"></div>
+      <label class="nl-consent"><input type="checkbox" id="nl-consent" name="consent" required>
+        <span>אני מאשר/ת לקבל מאיתןPDF (קובי איתן) הודעות דוא"ל על גרסאות חדשות ועדכונים לתוכנה. אפשר להסיר את עצמי בכל עת, בקישור שמופיע בכל הודעה או בתשובה למייל.</span></label>
+      <button class="btn btn-gold" type="submit" id="nl-submit">הרשמה לעדכונים</button>
+      <button class="nl-skip" type="button" data-nl-close>לא תודה</button>
+      <p class="nl-fine">אין חובה למסור את הפרטים. הם משמשים רק לשליחת העדכונים, נשמרים אצל ספק הדיוור Resend ולא מועברים לאף אחד אחר. אפשר לבקש לעיין בהם, לתקן או למחוק. <a href="/privacy" target="_blank">מדיניות הפרטיות</a></p>
+    </form>
+    <div class="nl-ok" id="nl-ok" hidden>
+      <div class="ic">✓</div>
+      <h3>נרשמתם!</h3>
+      <p id="nl-ok-text">שלחנו לכם מייל אישור. נעדכן כשתצא גרסה חדשה.</p>
+      <button class="btn btn-gold" type="button" data-nl-close>סגירה</button>
+    </div>
+  </div>
+</dialog>
 
 <script>
   // הגרסה והגודל נמשכים מהגרסה האחרונה בריפו. אם GitHub לא זמין — הקישור /download עדיין עובד.
@@ -441,6 +504,75 @@
         document.querySelectorAll('[data-dl]').forEach((a) => (a.href = asset.browser_download_url));
       }
     } catch (e) { /* נשארים עם /download */ }
+  })();
+</script>
+<script>
+  // לייטבוקס הרשמה לעדכונים: נפתח אחרי כמה שניות בדף (פעם בשבועיים לכל היותר), ושוב בכל לחיצה על הורדה.
+  (() => {
+    const dlg = document.getElementById('nl');
+    if (!dlg || typeof dlg.showModal !== 'function') return;
+    const K_SUB = 'eitanpdf-subscribed', K_DISMISS = 'eitanpdf-dismissed';
+    const AUTO_DELAY = 8000, SNOOZE_DAYS = 14;
+    const get = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+    const put = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+    const $ = (id) => document.getElementById(id);
+    let source = 'auto', openedAt = 0, autoTimer;
+
+    const subscribed = () => get(K_SUB) === '1';
+    function open(src) {
+      if (dlg.open) return;
+      clearTimeout(autoTimer);
+      source = src;
+      const dl = src === 'download';
+      $('nl-badge').hidden = !dl;
+      $('nl-title').textContent = dl ? 'רוצים לקבל את הגרסה הבאה ראשונים?' : 'רוצים לדעת כשיוצאת גרסה חדשה?';
+      $('nl-sub').textContent = dl
+        ? 'בעוד רגע ההורדה תסתיים. בינתיים, השאירו מייל ונודיע לכם כשתצא גרסה חדשה, למשל עריכת הטקסט שכבר במסמך, שנמצאת בפיתוח.'
+        : 'השאירו מייל, ונשלח הודעה קצרה כשיש גרסה חדשה, עם מה שהשתנה וקישור להורדה.';
+      $('nl-form').hidden = false; $('nl-ok').hidden = true; $('nl-err').classList.remove('show');
+      openedAt = Date.now();
+      dlg.showModal();
+    }
+    function close() { if (dlg.open) dlg.close(); }
+    dlg.addEventListener('close', () => { if (!subscribed()) put(K_DISMISS, String(Date.now())); });
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); });  // לחיצה על הרקע
+    document.querySelectorAll('[data-nl-close]').forEach((b) => b.addEventListener('click', close));
+    document.querySelectorAll('[data-nl-open]').forEach((b) => b.addEventListener('click', () => open('footer')));
+
+    // לחיצה על הורדה: ההורדה עצמה ממשיכה כרגיל, והחלון נפתח מעליה.
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-dl]');
+      if (!a || subscribed()) return;
+      setTimeout(() => open('download'), 350);
+    });
+
+    // פתיחה אוטומטית
+    const dismissed = Number(get(K_DISMISS) || 0);
+    if (!subscribed() && Date.now() - dismissed > SNOOZE_DAYS * 864e5) {
+      autoTimer = setTimeout(() => { if (!document.hidden) open('auto'); }, AUTO_DELAY);
+    }
+
+    $('nl-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = $('nl-err'); err.classList.remove('show');
+      const email = $('nl-email').value.trim();
+      const show = (m, el) => { err.textContent = m; err.classList.add('show'); if (el) el.focus(); };
+      if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) return show('נא להזין כתובת מייל תקינה.', $('nl-email'));
+      if (!$('nl-consent').checked) return show('כדי להירשם צריך לסמן את תיבת האישור.', $('nl-consent'));
+      const btn = $('nl-submit'); btn.disabled = true; btn.textContent = 'שולח…';
+      try {
+        const r = await fetch('/api/subscribe', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, name: $('nl-name').value.trim(), consent: true, source, website: $('nl-website').value, elapsed: Date.now() - openedAt }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || 'משהו השתבש. נסו שוב בעוד רגע.');
+        put(K_SUB, '1');
+        $('nl-ok-text').textContent = j.already ? 'הכתובת הזו כבר רשומה. נעדכן כשתצא גרסה חדשה.' : 'שלחנו מייל אישור ל-' + email + '. נעדכן כשתצא גרסה חדשה.';
+        $('nl-form').hidden = true; $('nl-ok').hidden = false;
+      } catch (ex) { show(ex.message); }
+      btn.disabled = false; btn.textContent = 'הרשמה לעדכונים';
+    });
   })();
 </script>
 </body>

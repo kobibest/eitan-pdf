@@ -3,10 +3,21 @@
   "redirects": [
     { "source": "/download", "destination": "https://github.com/kobibest/eitan-pdf/releases/latest/download/EitanPDF-Setup-x64.exe", "permanent": false }
   ],
+  "rewrites": [
+    { "source": "/x/:slug", "destination": "/api/panel?slug=:slug" }
+  ],
+  "functions": {
+    "api/panel.js": { "includeFiles": "api/_lib/panel.html" },
+    "api/admin.js": { "maxDuration": 300 }
+  },
   "headers": [
     { "source": "/(.*)", "headers": [
       { "key": "X-Content-Type-Options", "value": "nosniff" },
       { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+    ] },
+    { "source": "/unsubscribe", "headers": [
+      { "key": "X-Robots-Tag", "value": "noindex" },
+      { "key": "Referrer-Policy", "value": "no-referrer" }
     ] }
   ]
 }
