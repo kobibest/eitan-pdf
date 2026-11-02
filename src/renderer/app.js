@@ -58,8 +58,11 @@ const ICONS = {
   chevL: '<path d="m15 6-6 6 6 6"/>',
   doc: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
   check: '<path d="m5 12 4.5 4.5L19 7"/>',
+  mark: '<rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="m7.5 12 3 3 6-6.5"/>',
   redact: '<rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor" stroke="none"/><path d="M3 5h8M3 19h12"/>',
 };
+/** סימון V / X — אותו נתיב בעורך ובקובץ השמור */
+const markSvg = (shape, color) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${Ops.MARK_PATHS[shape] || Ops.MARK_PATHS.check}" fill="none" stroke="${color}" stroke-width="${Ops.MARK_STROKE}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
 /* =========================================================
@@ -127,6 +130,7 @@ const S = {
   signature: null,
   fonts: null,
   pendingImage: null,
+  mark: { shape: 'check', color: '#1B2430' }, // הסימון האחרון שנבחר — הסימון הבא יהיה כמוהו
   pagesMode: 'arrange', // בתוך "עמודים": סידור / מיזוג / פיצול / סימן מים ומספור
 };
 const PAGES_MODES = [
@@ -663,6 +667,11 @@ function placeItem(ctx, x, y) {
     item = { id, type: 'image', image: src, w, h: w * ratio };
     item.x = Math.max(0, Math.min(ctx.vw - w, x - w / 2));
     item.y = Math.max(0, Math.min(ctx.vh - item.h, y - item.h / 2));
+  } else if (S.placing === 'mark') {
+    const size = 16;
+    item = { id, type: 'mark', shape: S.mark.shape, color: S.mark.color, w: size, h: size };
+    item.x = Math.max(0, Math.min(ctx.vw - size, x - size / 2));
+    item.y = Math.max(0, Math.min(ctx.vh - size, y - size / 2));
   } else if (S.placing === 'rect') {
     item = { id, type: 'rect', color: '#ffffff', w: 160, h: 40 };
     item.x = Math.max(0, x - 80);
@@ -671,7 +680,7 @@ function placeItem(ctx, x, y) {
   commit(() => {
     (S.stamps[p.key] = S.stamps[p.key] || []).push(item);
     S.activeItem = { key: p.key, id };
-    S.placing = null;
+    if (S.placing !== 'mark') S.placing = null; // בסימון נשארים בכלי — בדרך כלל מסמנים כמה תיבות ברצף
   });
   if (item.type === 'text') {
     setTimeout(() => {
@@ -764,6 +773,8 @@ function itemEl(ctx, it) {
     el.append(ta);
   } else if (it.type === 'image') {
     el.append(h(`<img alt="" src="${it.image}">`));
+  } else if (it.type === 'mark') {
+    el.append(h(`<div class="mark-fill" title="${it.shape === 'x' ? 'סימון X' : 'סימון V'}">${markSvg(it.shape, it.color)}</div>`));
   } else if (it.type === 'redact') {
     el.append(h('<div class="redact-fill" title="השחרה: התוכן מתחת יימחק בשמירה"></div>'));
   } else if (it.type === 'rect') {
@@ -794,10 +805,10 @@ function itemEl(ctx, it) {
         it.y = Math.max(0, Math.min(ctx.vh - 10, oy + dy));
       } else {
         // ידית בפינה השמאלית-תחתונה (RTL): גרירה שמאלה מגדילה
-        const nw = Math.max(24, ow - dx);
+        const nw = Math.max(it.type === 'mark' ? 8 : 24, ow - dx);
         it.x = ox + (ow - nw);
         it.w = nw;
-        if (it.type === 'image') it.h = nw * (oh / ow);
+        if (it.type === 'image' || it.type === 'mark') it.h = nw * (oh / ow);
         else if (it.type === 'rect' || it.type === 'redact') it.h = Math.max(4, oh + dy);
       }
       el.style.left = it.x * ctx.scale + 'px';
@@ -816,7 +827,7 @@ function itemEl(ctx, it) {
   };
   grip.addEventListener('pointerdown', (e) => startDrag(e, 'move'));
   resize.addEventListener('pointerdown', (e) => startDrag(e, 'resize'));
-  if (it.type !== 'text') el.addEventListener('pointerdown', (e) => { if (e.target === el || e.target.tagName === 'IMG' || e.target.classList.contains('rect-fill') || e.target.classList.contains('redact-fill')) startDrag(e, 'move'); });
+  if (it.type !== 'text') el.addEventListener('pointerdown', (e) => { if (e.target === el || e.target.tagName === 'IMG' || e.target.classList.contains('rect-fill') || e.target.closest('.mark-fill') || e.target.classList.contains('redact-fill')) startDrag(e, 'move'); });
   return el;
 }
 
@@ -858,6 +869,19 @@ function itemBar(ctx, it) {
     for (const c of INK_COLORS) {
       const b = h(`<button class="swatch" style="background:${c.hex}" title="${c.name}" aria-label="${c.name}" aria-pressed="${it.color === c.hex}"></button>`);
       b.onclick = () => update(() => { it.color = c.hex; });
+      bar.append(b);
+    }
+    bar.append(h('<span class="sep"></span>'));
+  } else if (it.type === 'mark') {
+    for (const [shape, label] of [['check', 'סימון V'], ['x', 'סימון X']]) {
+      const b = h(`<button class="icon-btn ${it.shape === shape ? 'on' : ''}" title="${label}" aria-label="${label}" aria-pressed="${it.shape === shape}">${markSvg(shape, 'currentColor')}</button>`);
+      b.onclick = () => update(() => { it.shape = shape; S.mark.shape = shape; });
+      bar.append(b);
+    }
+    bar.append(h('<span class="sep"></span>'));
+    for (const c of INK_COLORS) {
+      const b = h(`<button class="swatch" style="background:${c.hex}" title="${c.name}" aria-label="${c.name}" aria-pressed="${it.color === c.hex}"></button>`);
+      b.onclick = () => update(() => { it.color = c.hex; S.mark.color = c.hex; });
       bar.append(b);
     }
     bar.append(h('<span class="sep"></span>'));
@@ -1963,11 +1987,12 @@ function signTools() {
   const tools = h(`
     <div class="group">
       <h2>הוספה לעמוד</h2>
-      <p class="hint">${S.placing === 'redact' ? 'גררו מלבן על מה שצריך להימחק. אפשר לסמן כמה אזורים ברצף. Esc לסיום.' : S.placing ? 'לחצו על המקום בעמוד שבו זה צריך להופיע. Esc לביטול.' : 'בוחרים כלי ולוחצים על המקום הרצוי בעמוד.'}</p>
+      <p class="hint">${S.placing === 'redact' ? 'גררו מלבן על מה שצריך להימחק. אפשר לסמן כמה אזורים ברצף. Esc לסיום.' : S.placing === 'mark' ? 'לחצו על כל תיבה שצריך לסמן. אפשר לסמן כמה ברצף. Esc לסיום.' : S.placing ? 'לחצו על המקום בעמוד שבו זה צריך להופיע. Esc לביטול.' : 'בוחרים כלי ולוחצים על המקום הרצוי בעמוד.'}</p>
       <div class="tool-grid">
         <button class="tool" data-t="text" aria-pressed="${S.placing === 'text'}">${icon('text')}טקסט</button>
         <button class="tool" data-t="signature" aria-pressed="${S.placing === 'signature'}">${icon('sign')}חתימה</button>
         <button class="tool" data-t="date" aria-pressed="${S.placing === 'date'}">${icon('date')}תאריך<small>${todayStr()}</small></button>
+        <button class="tool" data-t="mark" aria-pressed="${S.placing === 'mark'}">${icon('mark')}סימון<small>V או X בתיבה</small></button>
         <button class="tool" data-t="redact" aria-pressed="${S.placing === 'redact'}">${icon('redact')}השחרה<small>מוחקת לצמיתות</small></button>
         <button class="tool" data-t="rect" aria-pressed="${S.placing === 'rect'}">${icon('erase')}כיסוי לבן<small>מסתיר בלבד</small></button>
         <button class="tool" data-t="image" aria-pressed="${S.placing === 'image'}">${icon('image')}תמונה או חותמת</button>

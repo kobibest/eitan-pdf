@@ -14,7 +14,7 @@
 })(typeof self !== 'undefined' ? self : this, function (PDFLib, fontkit, H, TE) {
   'use strict';
 
-  const { PDFDocument, PDFName, PDFHexString, degrees, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix, StandardFonts } = PDFLib;
+  const { PDFDocument, PDFName, PDFHexString, degrees, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix, StandardFonts, LineCapStyle } = PDFLib;
 
   const LOAD_OPTS = { ignoreEncryption: true, updateMetadata: false };
 
@@ -107,9 +107,16 @@
     return isPng ? doc.embedPng(bytes) : doc.embedJpg(bytes);
   }
 
+  /** סימוני V / X: נתיבים בתיבה של 24×24 (כמו ה-SVG בעורך), עובי קו ביחידות התיבה */
+  const MARK_PATHS = {
+    check: 'M4 12.5 9.5 18 20 6',
+    x: 'M5.5 5.5 18.5 18.5M18.5 5.5 5.5 18.5',
+  };
+  const MARK_STROKE = 3;
+
   /**
    * ציור חותמות על עמוד. קואורדינטות ביחידות PDF, ראשית בפינה השמאלית-עליונה של התצוגה.
-   * stamp: { type: 'text'|'image', x, y, w, h, text, size, color, align, image(dataUrl|bytes), opacity }
+   * stamp: { type: 'text'|'image'|'rect'|'mark', x, y, w, h, text, size, color, align, image(dataUrl|bytes), opacity, shape('check'|'x') }
    */
   async function drawStamps(doc, page, stamps, fonts) {
     const images = [];
@@ -128,6 +135,13 @@
           });
         } else if (s.type === 'rect') {
           page.drawRectangle({ x: s.x, y: vh - s.y - s.h, width: s.w, height: s.h, color: hexToRgb(s.color || '#ffffff') });
+        } else if (s.type === 'mark') {
+          // וקטורי: חד בכל זום ובהדפסה
+          page.drawSvgPath(MARK_PATHS[s.shape] || MARK_PATHS.check, {
+            x: s.x, y: vh - s.y, scale: s.w / 24,
+            borderColor: hexToRgb(s.color), borderWidth: MARK_STROKE,
+            borderLineCap: LineCapStyle.Round,
+          });
         }
       }
     });
@@ -513,6 +527,6 @@
 
   return {
     load, parseRanges, chunk, buildDocument, splitDocument, imagesToPdf, getFormFields, fillForm,
-    viewSize, withViewFrame, pageCount, hexToRgb, StandardFonts, applyTextEdits,
+    viewSize, withViewFrame, pageCount, hexToRgb, StandardFonts, applyTextEdits, MARK_PATHS, MARK_STROKE,
   };
 });
