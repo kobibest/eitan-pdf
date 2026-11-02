@@ -132,9 +132,14 @@ function createWindow() {
     {
       label: 'תצוגה',
       submenu: [
+        { label: 'עמוד יחיד', click: send('layout-single') },
+        { label: 'גלילה רציפה', click: send('layout-continuous') },
+        { label: 'שני עמודים זה לצד זה', click: send('layout-two') },
+        { type: 'separator' },
         { label: 'הגדלה', accelerator: 'CmdOrCtrl+=', click: send('zoom-in') },
         { label: 'הקטנה', accelerator: 'CmdOrCtrl+-', click: send('zoom-out') },
         { label: 'התאמה לרוחב', accelerator: 'CmdOrCtrl+0', click: send('zoom-fit') },
+        { label: 'עמוד שלם במסך', accelerator: 'CmdOrCtrl+9', click: send('zoom-page') },
         { type: 'separator' },
         { label: 'הלשונית הבאה', accelerator: 'Ctrl+Tab', click: send('next-tab') },
         { label: 'הלשונית הקודמת', accelerator: 'Ctrl+Shift+Tab', click: send('prev-tab') },
