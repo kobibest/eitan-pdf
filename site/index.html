@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>איתןPDF — תוכנת PDF חינמית בעברית</title>
+<title>איתןPDF — כל כלי ה-PDF, בעברית מלאה</title>
 <meta name="description" content="איתןPDF: תוכנה חינמית ל-Windows לעבודה עם PDF בעברית. צפייה, חתימה, מילוי טפסים, מיזוג, פיצול והשחרה. עובדת על המחשב, בלי אינטרנט ובלי להעלות קבצים.">
-<meta property="og:title" content="איתןPDF — PDF בעברית שלא מתהפכת">
-<meta property="og:description" content="תוכנה חינמית ל-Windows: חתימה, טפסים, מיזוג, פיצול והשחרה. הכל על המחשב שלכם.">
+<meta property="og:title" content="איתןPDF — כל כלי ה-PDF, בעברית מלאה">
+<meta property="og:description" content="תוכנה חינמית ל-Windows בעברית מלאה: חתימה, טפסים, מיזוג, פיצול והשחרה. על המחשב שלכם.">
 <meta property="og:image" content="https://pdf.m-eitan.co.il/og.jpg">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
@@ -94,14 +94,23 @@
   .sec-head { max-width: 720px; margin: 0 auto 44px; text-align: center; }
   .sec-head h2 { margin: 0 0 12px; font-size: clamp(28px, 3.6vw, 40px); line-height: 1.2; }
   .sec-head p { margin: 0; color: var(--ink-2); }
-  .flip { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; max-width: 900px; margin: 0 auto; }
+  .he-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; max-width: 1000px; }
+  .he-text h2 { margin: 0 0 14px; font-size: clamp(28px, 3.6vw, 40px); line-height: 1.2; }
+  .he-text p { margin: 0 0 18px; color: var(--ink-2); }
+  .he-points { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+  .he-points li { position: relative; padding-inline-start: 28px; font-weight: 500; }
+  .he-points li::before { content: '✓'; position: absolute; inset-inline-start: 0; top: 0; color: var(--royal); font-weight: 700; }
+  .he-sheet { margin: 0; }
+  .he-sheet .tag { background: var(--navy); }
+  .soon { background: var(--paper); border-top: 1px solid #E3E9F4; }
+  .soon-card { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: auto 1fr; gap: 24px; align-items: start; padding: 30px 32px; border-radius: 16px; border: 1.5px dashed var(--royal); background: #F6F8FC; }
+  .soon-badge { display: inline-block; background: var(--gold); color: var(--navy-deep); font-weight: 700; font-size: 14px; padding: 4px 14px; border-radius: 20px; white-space: nowrap; }
+  .soon-card h2 { margin: 0 0 8px; font-size: clamp(24px, 3vw, 32px); line-height: 1.25; }
+  .soon-card p { margin: 0; color: var(--ink-2); }
   .sheet { background: var(--paper); border-radius: 4px; box-shadow: var(--shadow); padding: 28px 30px 30px; position: relative; }
   .sheet .tag { position: absolute; top: -13px; inset-inline-start: 24px; font-size: 13px; font-weight: 700; padding: 3px 12px; border-radius: 20px; color: #fff; }
-  .sheet.bad .tag { background: var(--bad); }
-  .sheet.good .tag { background: var(--good); }
   .sheet .line { font-family: 'Alef', 'IBM Plex Sans Hebrew', sans-serif; font-size: 19px; padding: 9px 0; border-bottom: 1px solid #EEF1F7; }
   .sheet .line:last-child { border-bottom: 0; }
-  .sheet.bad .line { color: #4a4f5c; }
   .sheet .lbl { display: block; font-size: 12px; color: var(--ink-3); font-family: 'IBM Plex Sans Hebrew', sans-serif; direction: rtl; unicode-bidi: normal; text-align: right; }
 
   /* ---------- יכולות ---------- */
@@ -171,7 +180,8 @@
   @media (max-width: 900px) {
     .grid { grid-template-columns: 1fr 1fr; }
     .feat.wide { grid-column: span 2; grid-template-columns: 1fr; }
-    .flip, .mock-row { grid-template-columns: 1fr; }
+    .he-grid, .mock-row { grid-template-columns: 1fr; gap: 28px; }
+    .soon-card { grid-template-columns: 1fr; }
     .top nav { display: none; }
   }
   @media (max-width: 600px) {
@@ -200,8 +210,8 @@
 <main>
   <section class="hero" aria-labelledby="h1">
     <div class="wrap hero-grid">
-      <h1 id="h1">PDF בעברית שלא מתהפכת</h1>
-      <p class="lead">חתימה, מילוי טפסים, מיזוג, פיצול והשחרה. תוכנה חינמית ל-Windows שעובדת על המחשב שלכם, בלי אינטרנט ובלי להעלות קבצים לשום מקום.</p>
+      <h1 id="h1">כל כלי ה-PDF, בעברית מלאה</h1>
+      <p class="lead">צפייה, חתימה, מילוי טפסים, מיזוג, פיצול והשחרה, בממשק עברי מלא. תוכנה חינמית ל-Windows שעובדת על המחשב שלכם, בלי להעלות קבצים לשום מקום.</p>
       <div class="cta-row">
         <a class="btn btn-gold" href="/download" data-dl>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
@@ -211,7 +221,7 @@
       </div>
       <ul class="meta" aria-label="פרטי הגרסה">
         <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg><span data-version>הגרסה האחרונה</span></li>
-        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Windows 10 ו-11</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Windows 10 ו-11, 64 ביט</li>
         <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>חינם, בלי פרסומות ובלי הרשמה</li>
         <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>קוד פתוח</li>
       </ul>
@@ -219,33 +229,32 @@
     </div>
   </section>
 
-  <section aria-labelledby="h-flip">
-    <div class="wrap">
-      <div class="sec-head">
-        <h2 id="h-flip">ההבדל שרואים בשנייה</h2>
-        <p>רוב הכלים שכותבים לתוך PDF הופכים את העברית, או מתקנים אותה ומשאירים את המספרים הפוכים. איתןPDF מסדרת כל שורה לפני שהיא נכתבת לקובץ, כולל מספרים, סוגריים, טלפונים וניקוד.</p>
+  <section aria-labelledby="h-he">
+    <div class="wrap he-grid">
+      <div class="he-text">
+        <h2 id="h-he">עברית מלאה, מהממשק ועד הקובץ</h2>
+        <p>כל התוכנה בנויה מימין לשמאל: התפריטים, הכלים וההסברים. וכל טקסט שאתם מוסיפים למסמך, בחתימה, בטופס או בהערה, נשמר בקובץ בסדר הנכון.</p>
+        <ul class="he-points">
+          <li>מספרים, סכומים ותאריכים בתוך משפט עברי</li>
+          <li>טלפונים, מספרי זהות וכתובות מייל</li>
+          <li>סוגריים ומירכאות בכיוון הנכון</li>
+          <li>אנגלית בתוך עברית, וניקוד</li>
+        </ul>
       </div>
-      <div class="flip">
-        <div class="sheet bad" role="img" aria-label="דוגמה לטקסט עברי שהתהפך בתוכנה רגילה">
-          <span class="tag">תוכנה רגילה</span>
-          <div class="line"><span class="lbl">סכום</span>ח"ש 05.052,1</div>
-          <div class="line"><span class="lbl">טלפון</span>7654321-050 :ןופלט</div>
-          <div class="line"><span class="lbl">הערה</span>תלוש מקורי )נגל(</div>
-        </div>
-        <div class="sheet good">
-          <span class="tag">איתןPDF</span>
-          <div class="line"><span class="lbl">סכום</span>1,250.50 ש"ח</div>
-          <div class="line"><span class="lbl">טלפון</span>טלפון: 050-1234567</div>
-          <div class="line"><span class="lbl">הערה</span>תלוש מקורי (נגל)</div>
-        </div>
-      </div>
+      <figure class="sheet he-sheet">
+        <span class="tag">כך זה נשמר בקובץ</span>
+        <div class="line"><span class="lbl">סכום</span>1,250.50 ש"ח (כולל מע"מ)</div>
+        <div class="line"><span class="lbl">פרטים</span>ת.ז. 012345678, טלפון 050-1234567</div>
+        <div class="line"><span class="lbl">הערה</span>פגישה עם Kobi Eitan ב-10:30</div>
+        <div class="line"><span class="lbl">ניקוד</span>שָׁלוֹם וּבְרָכָה</div>
+      </figure>
     </div>
   </section>
 
   <section class="features" id="features" aria-labelledby="h-feat">
     <div class="wrap">
       <div class="sec-head">
-        <h2 id="h-feat">כל מה שעושים עם PDF במשרד</h2>
+        <h2 id="h-feat">מה אפשר לעשות</h2>
         <p>כל קובץ נפתח בלשונית משלו. שומרים ישירות לקובץ, או בשם חדש.</p>
       </div>
       <div class="grid">
@@ -257,7 +266,7 @@
         <article class="feat">
           <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h4"/></svg></div>
           <h3>מילוי טפסים</h3>
-          <p>ממלאים ישירות על הדף, בעברית תקינה. אפשר לנעול את הטופס בשמירה כך שלא יהיה ניתן לשנות.</p>
+          <p>בטפסים עם שדות למילוי, ממלאים ישירות על הדף. אפשר לנעול את הטופס בשמירה כך שלא יהיה ניתן לשנות. בטופס סרוק כותבים עם כלי הטקסט.</p>
         </article>
         <article class="feat">
           <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg></div>
@@ -277,16 +286,28 @@
         <article class="feat">
           <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor" stroke="none"/><path d="M3 5h8M3 19h12"/></svg></div>
           <h3>השחרה אמיתית</h3>
-          <p>מוחקת לצמיתות את מה שמתחת, לא רק מכסה בריבוע שחור. מתאים לתעודות זהות, תלושים ומסמכים רגישים.</p>
+          <p>מוחקת לצמיתות את מה שמתחת, לא רק מכסה בריבוע שחור. העמוד המושחר נשמר כתמונה, ולכן הטקסט בו כבר לא ניתן לבחירה. שאר העמודים לא משתנים.</p>
         </article>
         <article class="feat wide">
           <div>
             <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/></svg></div>
             <h3>משתלבת ב-Windows</h3>
-            <p>קליק ימני על קבצי PDF בסייר: פתיחה, מיזוג או פיצול בלי לפתוח את התוכנה קודם. ואם רוצים, תמונה ממוזערת של העמוד הראשון במקום אייקון. כל אלה מופעלים בלחיצה אחת מתוך התוכנה.</p>
+            <p>קליק ימני על קבצי PDF בסייר: פתיחה, מיזוג או פיצול בלי לפתוח את התוכנה קודם. וגם תמונה ממוזערת של העמוד הראשון בסייר, במקום אייקון. כל אלה מופעלים בלחיצה אחת מתוך התוכנה, ואפשר לכבות אותם באותה דרך.</p>
           </div>
           <img src="shot-pages.webp" alt="מסך העמודים: שלושה קבצים ממוזגים, כל עמוד מסומן בלשונית בצבע הקובץ שלו" width="1440" height="872" loading="lazy">
         </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="soon" aria-labelledby="h-soon">
+    <div class="wrap">
+      <div class="soon-card">
+        <span class="soon-badge">בפיתוח</span>
+        <div>
+          <h2 id="h-soon">הצעד הבא: עריכת הטקסט שכבר במסמך</h2>
+          <p>היום מוסיפים טקסט, חתימות ושדות על גבי המסמך. בגרסה הבאה אפשר יהיה לתקן גם את הטקסט המקורי עצמו, מילה או שורה, בלי לשבור את העברית סביבו. ההתקנה של גרסה חדשה מעדכנת את הקיימת, כך שזה יגיע אליכם בהורדה אחת.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -295,14 +316,14 @@
     <div class="wrap">
       <div class="sec-head">
         <h2 id="h-inst">התקנה בשלושה צעדים</h2>
-        <p>לא צריך הרשאות מנהל. Windows ידפדף אתכם דרך אזהרה אחת או שתיים, וכאן מוסבר בדיוק על מה לוחצים.</p>
+        <p>לא צריך הרשאות מנהל. בהתקנה הראשונה Windows והדפדפן עשויים להציג אזהרה, וכאן מוסבר על מה לוחצים. החלונות שבהמשך הם המחשה, והניסוח אצלכם עשוי להיות מעט שונה.</p>
       </div>
       <ol class="steps">
         <li class="step">
           <div>
             <h3>מורידים את קובץ ההתקנה</h3>
-            <p><a href="/download" data-dl>הורדת איתןPDF</a> (<span data-size>כ-115MB</span>). הקובץ נקרא <bdi dir="ltr">EitanPDF-Setup-x64.exe</bdi>.</p>
-            <p>הדפדפן עשוי להזהיר שהקובץ "לא מוכר" או "לא מורד בדרך כלל", כי זו תוכנה חדשה שעדיין לא הורידו הרבה אנשים. כך ממשיכים:</p>
+            <p><a href="/download" data-dl>הורדת איתןPDF</a> (<span data-size>כ-110MB</span>). הקובץ נקרא <bdi dir="ltr">EitanPDF-Setup-x64.exe</bdi>.</p>
+            <p>הדפדפן עשוי להזהיר שהקובץ לא מורד בדרך כלל, כי זו תוכנה חדשה. אם זה קורה, כך ממשיכים:</p>
             <div class="mock-row">
               <figure class="mock">
                 <div class="dl"><div class="row"><span class="warn">!</span><div>הקובץ EitanPDF-Setup-x64.exe לא מורד בדרך כלל. ודא שאתה סומך על הקובץ לפני שתפתח אותו.</div></div>
@@ -320,7 +341,7 @@
         <li class="step">
           <div>
             <h3>פותחים את הקובץ, ועוברים את המסך הכחול</h3>
-            <p>בפעם הראשונה Windows יציג חלון כחול: "Windows הגן על המחשב שלך". זה קורה לכל תוכנה שלא נרכשה לה חתימה דיגיטלית בתשלום, ולא אומר שמשהו לא תקין.</p>
+            <p>Windows עשוי להציג חלון כחול: "Windows הגן על המחשב שלך". זה קורה לתוכנות חדשות שאין להן חתימה דיגיטלית מסחרית, ולא אומר שנמצאה בעיה בקובץ.</p>
             <div class="mock-row">
               <figure class="mock">
                 <div class="ss"><b>Windows הגן על המחשב שלך</b>
@@ -341,7 +362,7 @@
         <li class="step">
           <div>
             <h3>לוחצים "הבא" ו"סיום"</h3>
-            <p>ההתקנה לוקחת כחצי דקה. בסוף התוכנה נפתחת, ויש לה קיצור דרך בתפריט התחל ועל שולחן העבודה.</p>
+            <p>בסוף ההתקנה התוכנה נפתחת, ונוצר לה קיצור דרך בתפריט התחל ועל שולחן העבודה.</p>
             <p>רוצים קליק ימני על PDF בסייר, או תמונות ממוזערות? בתוכנה לוחצים על <kbd>שילוב ב-Windows</kbd> בתחתית הסרגל הימני.</p>
           </div>
         </li>
@@ -355,11 +376,11 @@
       <div class="qa">
         <details>
           <summary>האם הקבצים שלי נשלחים לאנשהו?</summary>
-          <p>לא. כל העבודה נעשית על המחשב שלכם, והתוכנה בכלל לא מתחברת לאינטרנט. אפשר לנתק את הרשת ולהמשיך לעבוד כרגיל.</p>
+          <p>לא. כל העבודה נעשית על המחשב שלכם, והתוכנה לא שולחת קבצים לשום מקום. היא גם לא צריכה חיבור לאינטרנט כדי לעבוד.</p>
         </details>
         <details>
           <summary>למה Windows מזהיר ממנה?</summary>
-          <p>Windows מזהיר מכל תוכנה שאין לה חתימה דיגיטלית בתשלום ושעוד לא הורידו הרבה אנשים. איתןPDF בקוד פתוח, וכל אחד יכול לקרוא את הקוד שלה ב-GitHub ולבנות אותה בעצמו.</p>
+          <p>Windows מזהיר מתוכנות חדשות שאין להן חתימה דיגיטלית מסחרית ועוד לא צברו מוניטין אצל Microsoft. איתןPDF בקוד פתוח: אפשר לקרוא את הקוד ב-GitHub, וקובץ ההתקנה נבנה שם אוטומטית מהקוד הזה.</p>
         </details>
         <details>
           <summary>איך מעדכנים לגרסה חדשה?</summary>
@@ -379,7 +400,7 @@
         </details>
         <details>
           <summary>יש גרסה ל-Mac?</summary>
-          <p>כרגע רק ל-Windows 10 ו-11 (64 ביט). במחשבים עם מעבד ARM ב-Windows 11 היא רצה דרך האמולציה המובנית.</p>
+          <p>כרגע רק ל-Windows 10 ו-11, בגרסת 64 ביט.</p>
         </details>
       </div>
     </div>
@@ -388,7 +409,7 @@
   <section class="final" aria-labelledby="h-final">
     <div class="wrap">
       <h2 id="h-final">מוכנים לנסות?</h2>
-      <p>הורדה אחת, התקנה של חצי דקה, ואתם עובדים.</p>
+      <p>חינם, בעברית, ועל המחשב שלכם.</p>
       <a class="btn btn-gold" href="/download" data-dl>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
         הורדה חינמית ל-Windows
