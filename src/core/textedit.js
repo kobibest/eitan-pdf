@@ -632,8 +632,64 @@
         glyphs: all, visual, box: bb, origin, angle: L.ang, width: L.u1 - L.u0, size,
         bold: boldCount > L.items.length / 2, color: fill, ok,
         fontName: first.font.name,
+        // קואורדינטות לאורך השורה: u0..u1 לאורך קו הבסיס, v — גובה קו הבסיס
+        u0: L.u0, u1: L.u1, v: L.v,
+        // שורה עם כמה פונטים (למשל "הנדון:" מודגש) תיכתב מחדש בסגנון אחד
+        mixed: new Set(all.map((g) => g.fontRef + (g.font.bold ? 'b' : ''))).size > 1,
       };
     });
+  }
+
+  /**
+   * יישור השורה לפי השורות השכנות (אותה זווית, גודל דומה, קרובות אנכית):
+   * קצה ימני משותף → ימין, שמאלי → שמאל, מרכז משותף → מרכז.
+   * שורה בפסקה מיושרת לשני הצדדים, או שורה בודדת — לפי כיוון הטקסט.
+   */
+  function inferAlign(line, lines, dir) {
+    const tol = Math.max(1.5, line.size * 0.15);
+    let left = 0, right = 0, center = 0;
+    for (const n of lines) {
+      if (n === line || n.angle !== line.angle) continue;
+      if (Math.abs(n.v - line.v) > Math.max(n.size, line.size) * 4) continue;
+      const l = Math.abs(n.u0 - line.u0) < tol, r = Math.abs(n.u1 - line.u1) < tol;
+      const m = Math.abs((n.u0 + n.u1) / 2 - (line.u0 + line.u1) / 2) < tol;
+      // מרכז משותף נחשב גם בין גדלים שונים (כותרת וכותרת משנה)
+      if (m && !l && !r) { center++; continue; }
+      if (Math.abs(n.size - line.size) > line.size * 0.25) continue;
+      if (l) left++;
+      if (r) right++;
+    }
+    const fallback = dir === 'rtl' ? 'right' : 'left';
+    if (left && right) return fallback;
+    if (right) return 'right';
+    if (left) return 'left';
+    if (center) return 'center';
+    return fallback;
+  }
+
+  /** מציאת השורה שנערכה בעמוד, לפי הטקסט המקורי והמיקום (סטייה של עד נקודה) */
+  function findLine(lines, edit) {
+    const close = (a, b) => Math.abs(a - b) < 1;
+    return lines.find((L) => L.angle === edit.angle && close(L.u0, edit.u0) && close(L.u1, edit.u1) && close(L.v, edit.v)
+      && lineText(L).text === edit.original) || null;
+  }
+
+  /**
+   * תיאור עריכה לשמירה בממשק: כל מה שצריך כדי למצוא את השורה שוב ולצייר את החדשה.
+   * (בלי הגליפים עצמם — הם מחושבים מחדש בשמירה.)
+   */
+  function editFromLine(line, lines) {
+    const { text, dir } = lineText(line);
+    const hexc = '#' + line.color.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
+    return {
+      type: 'edit', original: text, text, dir,
+      align: inferAlign(line, lines, dir),
+      size: Math.round(line.size * 100) / 100, bold: line.bold, color: hexc,
+      angle: line.angle, u0: line.u0, u1: line.u1, v: line.v, box: line.box,
+      ok: line.ok, mixed: line.mixed, fontName: line.fontName,
+      // אם המסמך כתוב באחד הפונטים שמגיעים עם התוכנה — ממשיכים בו
+      font: /alef/i.test(line.fontName) ? 'alef' : 'plex',
+    };
   }
 
   /* ---------- טקסט לוגי ---------- */
@@ -834,5 +890,5 @@
     });
   }
 
-  return { parseOps, analyzePage, groupLines, lineText, removeGlyphs, glyphsInBoxes, parseToUnicode };
+  return { parseOps, analyzePage, groupLines, lineText, inferAlign, findLine, editFromLine, removeGlyphs, glyphsInBoxes, parseToUnicode };
 });

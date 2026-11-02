@@ -7,11 +7,11 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('pdf-lib'), require('@pdf-lib/fontkit'), require('./hebrew.js'));
+    module.exports = factory(require('pdf-lib'), require('@pdf-lib/fontkit'), require('./hebrew.js'), require('./textedit.js'));
   } else {
-    root.PdfOps = factory(root.PDFLib, root.fontkit, root.HebrewPDF);
+    root.PdfOps = factory(root.PDFLib, root.fontkit, root.HebrewPDF, root.TextEdit);
   }
-})(typeof self !== 'undefined' ? self : this, function (PDFLib, fontkit, H) {
+})(typeof self !== 'undefined' ? self : this, function (PDFLib, fontkit, H, TE) {
   'use strict';
 
   const { PDFDocument, PDFName, PDFHexString, degrees, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix, StandardFonts } = PDFLib;
@@ -137,6 +137,65 @@
     const regular = await H.embedFont(doc, fontBytes.regular, fontkit);
     const bold = fontBytes.bold ? await H.embedFont(doc, fontBytes.bold) : regular;
     return { regular, bold };
+  }
+
+  /* ---------- עריכת טקסט קיים ---------- */
+
+  /**
+   * החלפת שורות קיימות בעמוד. edits: פריטי { type:'edit' } שנוצרו ב-TextEdit.editFromLine
+   * ועודכנו בממשק (text, size, bold, color, align, font).
+   * השורה המקורית נמחקת מזרם התוכן (לא מכוסה), והחדשה נכתבת דרך hebrew.js.
+   * שורה שלא ניתן למחוק (פונט לא נתמך, השורה לא נמצאה) — מכוסה בצבע הרקע, עם אזהרה.
+   */
+  async function applyTextEdits(doc, page, edits, o) {
+    const changed = edits.filter((e) => e.text !== e.original);
+    if (!changed.length) return;
+    const analysis = TE.analyzePage(doc, page);
+    const lines = TE.groupLines(analysis.glyphs);
+    const toRemove = [];
+    const fallback = [];
+    for (const e of changed) {
+      const L = TE.findLine(lines, e);
+      if (L && L.ok) toRemove.push(...L.glyphs);
+      else {
+        fallback.push(e);
+        if (o.onWarning) o.onWarning(L ? `השורה "${e.original}" כתובה בפונט שלא ניתן למחוק ממנו, ולכן היא כוסתה במקום להימחק` : `השורה "${e.original}" לא נמצאה בעמוד — היא כוסתה במקום להימחק`);
+      }
+    }
+    if (toRemove.length) TE.removeGlyphs(doc, page, analysis, toRemove);
+
+    const cache = new Map();
+    const fontFor = async (e) => {
+      const fam = (o.editFonts && o.editFonts[e.font === 'alef' ? 'alef' : 'plex']) || o.fonts;
+      const key = (e.font === 'alef' ? 'alef' : 'plex') + (e.bold ? 'b' : '');
+      if (!cache.has(key)) cache.set(key, await H.embedFont(doc, e.bold && fam.bold ? fam.bold : fam.regular, fontkit));
+      return cache.get(key);
+    };
+    for (const e of changed) {
+      const c = Math.cos(e.angle), s = Math.sin(e.angle);
+      const at = (u, v) => [u * c - v * s, u * s + v * c];
+      if (fallback.includes(e)) {
+        const [x0, y0, x1, y1] = e.box;
+        page.drawRectangle({ x: x0 - 1, y: y0 - 1, width: x1 - x0 + 2, height: y1 - y0 + 2, color: hexToRgb(e.bg || '#ffffff') });
+      }
+      if (!e.text.trim()) continue; // שורה שנמחקה
+      const font = await fontFor(e);
+      const size = e.size;
+      const lines = String(e.text).split(/\r?\n/);
+      lines.forEach((logical, k) => {
+        const dir = H.hasRTL(logical) ? 'rtl' : 'ltr';
+        const visual = H.toVisual(logical, dir);
+        const w = font.widthOfTextAtSize(visual, size);
+        let u = e.u0;
+        if (e.align === 'right') u = e.u1 - w;
+        else if (e.align === 'center') u = (e.u0 + e.u1) / 2 - w / 2;
+        const [x, y] = at(u, e.v - k * size * 1.25);
+        H.drawVisualLine(page, visual, x, y, {
+          font, size, color: hexToRgb(e.color),
+          rotate: e.angle ? PDFLib.radians(e.angle) : undefined,
+        });
+      });
+    }
   }
 
   /* ---------- טפסים ---------- */
@@ -363,7 +422,12 @@
       if (p.rotate) pg.setRotation(degrees((((pg.getRotation().angle + p.rotate) % 360) + 360) % 360));
       const key = p.key || `${p.src}:${p.index}`;
       const list = (stamps || {})[key];
-      if (list && list.length) await drawStamps(doc, pg, list, fonts);
+      if (list && list.length) {
+        const edits = list.filter((s) => s.type === 'edit');
+        if (edits.length) await applyTextEdits(doc, pg, edits, o);
+        const rest = list.filter((s) => s.type !== 'edit');
+        if (rest.length) await drawStamps(doc, pg, rest, fonts);
+      }
     }
     if (o.watermark && o.watermark.text) applyWatermark(doc, fonts, o.watermark);
     if (o.pageNumbers && o.pageNumbers.enabled) applyPageNumbers(doc, fonts, o.pageNumbers);
@@ -449,6 +513,6 @@
 
   return {
     load, parseRanges, chunk, buildDocument, splitDocument, imagesToPdf, getFormFields, fillForm,
-    viewSize, withViewFrame, pageCount, hexToRgb, StandardFonts,
+    viewSize, withViewFrame, pageCount, hexToRgb, StandardFonts, applyTextEdits,
   };
 });
