@@ -9,18 +9,24 @@
 /* ===== טוקנים ===== */
 :root {
   color-scheme: light;
-  --desk: #D5DDD9;          /* שולחן העבודה — אפור-ירקרק קריר, שהדפים הלבנים יבלטו עליו */
-  --desk-deep: #C3CDC8;
+  /* שפה עיצובית לפי הלוגו: כחול רויאל עמוק, זהב כהדגשה יחידה, דף לבן */
+  --navy: #0B2A82;          /* סרגל עליון — הכחול העמוק של הלוגו */
+  --navy-deep: #081E63;
+  --navy-line: #1C3D9C;
+  --gold: #F5B227;          /* הסרט הזהוב — שמירה וסימון הכלי הפעיל בלבד */
+  --gold-deep: #D98A0B;
+  --desk: #DCE4F1;          /* שולחן העבודה — אפור-כחלחל, שהדפים הלבנים יבלטו עליו */
+  --desk-deep: #C8D3E7;
   --paper: #FFFFFF;
-  --panel: #F7F9F8;
-  --line: #C9D2CE;
-  --line-soft: #E3E8E6;
-  --ink: #1B2430;           /* טקסט */
-  --ink-2: #4E5B63;
-  --ink-3: #7B878D;
-  --ink-blue: #2340C8;      /* עט כדורי — פעולה ראשית, חתימות, בחירה */
-  --ink-blue-deep: #1A31A0;
-  --ink-blue-wash: #E7EBFB;
+  --panel: #F6F8FC;
+  --line: #CAD4E6;
+  --line-soft: #E3E9F4;
+  --ink: #14203A;           /* טקסט */
+  --ink-2: #48557A;
+  --ink-3: #7884A3;
+  --ink-blue: #1E4FD6;      /* כחול הלוגו — פעולה ראשית, חתימות, בחירה */
+  --ink-blue-deep: #163BA8;
+  --ink-blue-wash: #E5EDFD;
   --stamp: #C23A2E;         /* חותמת — מחיקה בלבד */
   --stamp-wash: #FBEAE7;
   --ok: #2F7D5B;
@@ -29,9 +35,9 @@
   --r-ctl: 8px;
   --r-pop: 12px;
 
-  --shadow-paper: 0 1px 1px rgba(27, 36, 48, .10), 0 6px 14px -6px rgba(27, 36, 48, .28);
-  --shadow-lift: 0 2px 4px rgba(27, 36, 48, .12), 0 18px 32px -12px rgba(27, 36, 48, .38);
-  --shadow-pop: 0 10px 40px -10px rgba(27, 36, 48, .35), 0 0 0 1px rgba(27, 36, 48, .06);
+  --shadow-paper: 0 1px 1px rgba(11, 30, 90, .10), 0 6px 14px -6px rgba(11, 30, 90, .30);
+  --shadow-lift: 0 2px 4px rgba(11, 30, 90, .12), 0 18px 32px -12px rgba(11, 30, 90, .40);
+  --shadow-pop: 0 10px 40px -10px rgba(11, 30, 90, .38), 0 0 0 1px rgba(11, 30, 90, .06);
 
   --fs-xs: 12px;
   --fs-s: 13px;
@@ -697,3 +703,61 @@ select.form-field { padding: 0 2px; }
 .pill svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .card .btn { flex: none; min-width: 92px; }
 .install-note { font-size: var(--fs-s); color: var(--ink-3); margin: 0; }
+
+/* ===== סרגל עליון בכחול הלוגו ===== */
+.topbar {
+  background: var(--navy);
+  border-bottom: 0;
+  color: #fff;
+}
+.brand { color: #fff; gap: 10px; }
+.brand-logo { width: 34px; height: 34px; display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,.25)); }
+.brand-name { font-size: 18px; font-weight: 700; letter-spacing: 0; display: flex; align-items: baseline; }
+.brand-name .pdf { color: var(--gold); font-weight: 700; letter-spacing: .02em; }
+.topbar .icon-btn { color: rgba(255,255,255,.82); }
+.topbar .icon-btn:hover:not(:disabled) { background: rgba(255,255,255,.12); color: #fff; }
+.topbar .icon-btn:disabled { opacity: .3; }
+.topbar .btn { background: transparent; border-color: rgba(255,255,255,.35); color: #fff; }
+.topbar .btn:hover:not(:disabled) { border-color: #fff; background: rgba(255,255,255,.08); }
+.topbar .btn:disabled { opacity: .4; }
+.topbar .btn-quiet { border-color: transparent; }
+.topbar .btn-quiet:hover { background: rgba(255,255,255,.12); }
+.topbar .btn-primary { background: var(--gold); border-color: var(--gold); color: var(--navy-deep); font-weight: 700; }
+.topbar .btn-primary:hover:not(:disabled) { background: #FFC23D; border-color: #FFC23D; }
+.topbar :focus-visible { outline-color: var(--gold); }
+.tab { color: rgba(255,255,255,.72); }
+.tab:hover { background: rgba(255,255,255,.10); }
+.tab.on { background: var(--desk); color: var(--ink); }
+.tab .dot { background: var(--gold); }
+.tab.on .dot { background: var(--ink-blue); }
+.tab-x { color: rgba(255,255,255,.6); }
+.tab-x:hover { background: rgba(255,255,255,.14); color: #fff; }
+.tab.on .tab-x { color: var(--ink-3); }
+.tab.on .tab-x:hover { background: rgba(11,30,90,.08); color: var(--ink); }
+.tab-plus { color: rgba(255,255,255,.8); }
+.tab-plus:hover { background: rgba(255,255,255,.12); color: #fff; }
+
+/* סרגל הכלים: הכלי הפעיל מסומן בפס זהב, כמו הסרט בלוגו */
+.rail-btn { position: relative; }
+.rail-btn[aria-pressed="true"]::before {
+  content: ''; position: absolute; top: 10px; bottom: 10px; inset-inline-start: -8px;
+  width: 4px; border-radius: 0 4px 4px 0; background: var(--gold);
+}
+[dir=rtl] .rail-btn[aria-pressed="true"]::before { border-radius: 4px 0 0 4px; }
+
+/* מצבי "עמודים" */
+.pages-modes { margin-bottom: -4px; }
+.pages-modes button { height: 32px; font-size: var(--fs-m); }
+.rail-btn:disabled[aria-pressed="true"] { background: none; color: var(--ink-2); font-weight: 500; }
+.rail-btn:disabled[aria-pressed="true"]::before { display: none; }
+.rail-btn:disabled[aria-pressed="true"] svg { stroke: currentColor; }
+
+/* השחרה: בעורך שחור עם פסים עדינים, כדי שיהיה ברור שזה סימון שיבוצע בשמירה */
+.item.kind-redact { cursor: move; }
+.redact-fill {
+  width: 100%; height: 100%;
+  background: repeating-linear-gradient(-45deg, #000 0 7px, #1d1d1d 7px 10px);
+  box-shadow: 0 0 0 1px rgba(194, 58, 46, .7);
+}
+.item.kind-redact.drawing { border: 1px dashed var(--stamp); }
+.item.kind-redact.active { border-color: var(--stamp); }

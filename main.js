@@ -3,6 +3,21 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
+const fsSync = require('fs');
+
+// שם התוכנה ותיקיית ההגדרות. תיקייה קבועה בשם לטיני, כדי שעדכונים ושינויי שם
+// לא יאבדו חתימות שמורות והגדרות. בהפעלה הראשונה מעבירים את מה שנשמר בגרסה הקודמת.
+app.setName('איתןPDF');
+app.setAppUserModelId('il.co.eitan-m.eitanpdf');
+(() => {
+  const appData = app.getPath('appData');
+  const target = path.join(appData, 'EitanPDF');
+  const legacy = path.join(appData, 'PDF עברית');
+  try {
+    if (!fsSync.existsSync(target) && fsSync.existsSync(legacy)) fsSync.cpSync(legacy, target, { recursive: true });
+  } catch (e) { /* לא קריטי — מתחילים נקי */ }
+  app.setPath('userData', target);
+})();
 const integration = require('./src/main/win-integration.js');
 
 let win;
@@ -43,7 +58,14 @@ function flush() {
   }
 }
 
-if (!app.requestSingleInstanceLock()) {
+// מוסר ההתקנה מפעיל את התוכנה עם הדגל הזה כדי לנקות את מה שנרשם ב-Windows
+const UNINSTALL = process.argv.includes('--uninstall-integration');
+if (UNINSTALL) {
+  app.whenReady().then(async () => {
+    for (const k of ['context', 'thumbs', 'default']) await integration.set(k, false).catch(() => {});
+    app.exit(0);
+  });
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', (_e, argv) => {
@@ -58,8 +80,8 @@ function createWindow() {
     height: 880,
     minWidth: 980,
     minHeight: 600,
-    title: 'PDF עברית',
-    backgroundColor: '#D5DDD9',
+    title: 'איתןPDF',
+    backgroundColor: '#DCE4F1',
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -223,8 +245,12 @@ async function exists(p) {
   try { await fs.access(p); return true; } catch { return false; }
 }
 
-queue(process.argv.slice(app.isPackaged ? 1 : 2));
-app.whenReady().then(createWindow);
+if (!UNINSTALL) queue(process.argv.slice(app.isPackaged ? 1 : 2));
+if (!UNINSTALL) app.whenReady().then(() => {
+  createWindow();
+  // אחרי עדכון: השילוב ב-Windows מופנה להתקנה החדשה
+  setTimeout(() => integration.repair(), 4000);
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 app.on('open-file', (e, p) => { e.preventDefault(); queue([p]); });

@@ -1,13 +1,13 @@
 {
   "name": "pdf-ivrit",
-  "version": "1.1.0",
-  "description": "תוכנה חינמית ומקומית לעבודה עם PDF בעברית: איחוד, פיצול, סידור, מילוי טפסים וחתימה",
+  "version": "1.2.0",
+  "description": "איתןPDF — תוכנה חינמית ומקומית לעבודה עם PDF בעברית",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "test": "node test/run-tests.js",
-    "dist": "electron-builder --win --x64",
-    "dist:portable": "electron-builder --win portable --x64"
+    "dist": "installer/build.sh x64",
+    "dist:arm64": "installer/build.sh arm64"
   },
   "author": "Kobi Eitan <kobi@eitan-m.co.il>",
   "license": "MIT",
@@ -21,11 +21,11 @@
     "electron": "^45.2.1",
     "electron-builder": "^26.18.0"
   },
-  "productName": "PDF עברית",
+  "productName": "איתןPDF",
   "build": {
-    "appId": "il.co.eitan-m.pdfivrit",
-    "productName": "PDF עברית",
-    "artifactName": "PDF-Ivrit-${version}-${arch}.${ext}",
+    "appId": "il.co.eitan-m.eitanpdf",
+    "productName": "איתןPDF",
+    "artifactName": "EitanPDF-${version}-${arch}.${ext}",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -33,52 +33,28 @@
     "files": [
       "main.js",
       "preload.js",
+      "build/icon.png",
       "src/**/*",
       "assets/**/*",
       "!node_modules/pdfjs-dist/legacy/**",
       "!node_modules/pdfjs-dist/types/**",
       "!node_modules/pdfjs-dist/web/**",
-      "!**/*.map"
+      "!**/*.map",
+      "!node_modules/@napi-rs/**",
+      "!node_modules/pdfjs-dist/image_decoders/**"
     ],
-    "fileAssociations": [
-      {
-        "ext": "pdf",
-        "name": "PDF",
-        "description": "מסמך PDF",
-        "role": "Editor"
-      }
-    ],
+    "fileAssociations": [],
     "win": {
       "target": [
         {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
+          "target": "dir",
           "arch": [
             "x64"
           ]
         }
       ],
-      "icon": "build/icon.png",
-      "executableName": "PDF-Ivrit"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "installerLanguages": [
-        "he_IL"
-      ],
-      "language": "1037",
-      "shortcutName": "PDF עברית",
-      "createDesktopShortcut": true
-    },
-    "portable": {
-      "artifactName": "PDF-Ivrit-${version}-portable.exe"
+      "icon": "build/icon.ico",
+      "executableName": "EitanPDF"
     },
     "extraResources": [
       {
@@ -97,6 +73,10 @@
           "LICENSE*"
         ]
       }
+    ],
+    "electronLanguages": [
+      "he",
+      "en-US"
     ]
   }
 }
