@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" office:version="1.2" office:mimetype="application/vnd.oasis.opendocument.text">
+<office:automatic-styles>
+<style:style style:name="R" style:family="paragraph"><style:paragraph-properties fo:text-align="end" style:writing-mode="rl-tb" fo:margin-bottom="0.3cm"/><style:text-properties style:font-name="DejaVu Sans" fo:font-size="12pt" style:font-name-complex="DejaVu Sans" style:font-size-complex="12pt"/></style:style>
+<style:style style:name="J" style:family="paragraph"><style:paragraph-properties fo:text-align="justify" style:writing-mode="rl-tb"/><style:text-properties style:font-size-complex="12pt" style:font-name-complex="DejaVu Sans"/></style:style>
+<style:style style:name="C" style:family="paragraph"><style:paragraph-properties fo:text-align="center" style:writing-mode="rl-tb"/><style:text-properties style:font-size-complex="18pt" style:font-weight-complex="bold" style:font-name-complex="DejaVu Sans"/></style:style>
+<style:style style:name="B" style:family="text"><style:text-properties style:font-weight-complex="bold" fo:font-weight="bold"/></style:style>
+</office:automatic-styles>
+<office:body><office:text>
+<text:p text:style-name="C">מכתב רשמי לדוגמה</text:p>
+<text:p text:style-name="R">לכבוד: משרד עו"ד כהן ושות' (סניף ת"א)</text:p>
+<text:p text:style-name="R"><text:span text:style-name="B">הנדון:</text:span> חשבונית מס' 2026/118 על סך 12,300.50 ₪</text:p>
+<text:p text:style-name="J">אנו מאשרים בזאת את קבלת התשלום בגין השירותים שניתנו בחודש אוקטובר 2026, בהתאם להסכם מיום 3.1.2026 ובכפוף לתנאים המפורטים בנספח ב' של ההסכם, לרבות מע"מ כדין ותוספת הצמדה למדד.</text:p>
+<text:p text:style-name="R">בברכה, קובי איתן — Eitan M. Ltd</text:p>
+</office:text></office:body></office:document>
