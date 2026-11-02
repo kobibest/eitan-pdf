@@ -1,0 +1,37 @@
+# גרסת בדיקה: כל דחיפה לענף שאינו main בונה תוכנת התקנה — בלי לפרסם אותה.
+# ההורדה: לשונית Actions ← הריצה האחרונה ← Artifacts ← EitanPDF-test
+name: Test build
+
+on:
+  push:
+    branches-ignore: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build test installer
+        run: |
+          npm ci
+          npm test
+          sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full
+          installer/build.sh x64
+          VERSION=$(node -p "require('./package.json').version")
+          SHORT=$(git rev-parse --short HEAD)
+          mkdir -p out
+          cp "dist/EitanPDF-Setup-$VERSION-x64.exe" "out/EitanPDF-Setup-$VERSION-test-$SHORT.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EitanPDF-test
+          path: out/*.exe
+          retention-days: 14
+          compression-level: 0
