@@ -162,7 +162,8 @@
    * שורה שלא ניתן למחוק (פונט לא נתמך, השורה לא נמצאה) — מכוסה בצבע הרקע, עם אזהרה.
    */
   async function applyTextEdits(doc, page, edits, o) {
-    const changed = edits.filter((e) => e.text !== e.original);
+    // שורה משתנה אם הטקסט השתנה, או שהמשתמש שינה עיצוב (גודל, מודגש, צבע, יישור, פונט)
+    const changed = edits.filter((e) => e.text !== e.original || e.restyled);
     if (!changed.length) return;
     const analysis = TE.analyzePage(doc, page);
     const lines = TE.groupLines(analysis.glyphs);
