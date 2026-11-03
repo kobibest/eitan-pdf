@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>איתןPDF — כל כלי ה-PDF, בעברית מלאה</title>
-<meta name="description" content="איתןPDF: תוכנה חינמית ל-Windows לעבודה עם PDF בעברית. צפייה, חתימה, מילוי טפסים, מיזוג, פיצול והשחרה. עובדת על המחשב, בלי אינטרנט ובלי להעלות קבצים.">
+<meta name="description" content="איתןPDF: תוכנה חינמית ל-Windows לעבודה עם PDF בעברית. צפייה, עריכת הטקסט שבמסמך, חתימה, מילוי טפסים, מיזוג, פיצול והשחרה. עובדת על המחשב, בלי אינטרנט ובלי להעלות קבצים.">
 <meta property="og:title" content="איתןPDF — כל כלי ה-PDF, בעברית מלאה">
-<meta property="og:description" content="תוכנה חינמית ל-Windows בעברית מלאה: חתימה, טפסים, מיזוג, פיצול והשחרה. על המחשב שלכם.">
+<meta property="og:description" content="תוכנה חינמית ל-Windows בעברית מלאה: עריכת טקסט, חתימה, טפסים, מיזוג, פיצול והשחרה. על המחשב שלכם.">
 <meta property="og:image" content="https://pdf.m-eitan.co.il/og.jpg">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
@@ -107,6 +107,9 @@
   .soon-badge { display: inline-block; background: var(--gold); color: var(--navy-deep); font-weight: 700; font-size: 14px; padding: 4px 14px; border-radius: 20px; white-space: nowrap; }
   .soon-card h2 { margin: 0 0 8px; font-size: clamp(24px, 3vw, 32px); line-height: 1.25; }
   .soon-card p { margin: 0; color: var(--ink-2); }
+  .soon-list { margin: 12px 0 14px; padding: 0 20px 0 0; color: var(--ink-2); }
+  .soon-list li { margin-bottom: 6px; }
+  .soon-list b { color: var(--ink); font-weight: 600; }
   .sheet { background: var(--paper); border-radius: 4px; box-shadow: var(--shadow); padding: 28px 30px 30px; position: relative; }
   .sheet .tag { position: absolute; top: -13px; inset-inline-start: 24px; font-size: 13px; font-weight: 700; padding: 3px 12px; border-radius: 20px; color: #fff; }
   .sheet .line { font-family: 'Alef', 'IBM Plex Sans Hebrew', sans-serif; font-size: 19px; padding: 9px 0; border-bottom: 1px solid #EEF1F7; }
@@ -126,6 +129,8 @@
   .feat.wide .ic { background: rgba(255,255,255,.1); }
   .feat.wide .ic svg { stroke: var(--gold); }
   .feat.wide img { width: 100%; height: auto; border-radius: 10px; box-shadow: 0 20px 40px -18px rgba(0,0,0,.6); }
+  .feat.wide p + p { margin-top: 10px; }
+  .feat.wide.flip img { order: -1; }
 
   /* ---------- התקנה ---------- */
   .steps { counter-reset: s; display: grid; gap: 22px; max-width: 900px; margin: 0 auto; list-style: none; padding: 0; }
@@ -246,7 +251,7 @@
   <section class="hero" aria-labelledby="h1">
     <div class="wrap hero-grid">
       <h1 id="h1">כל כלי ה-PDF, בעברית מלאה</h1>
-      <p class="lead">צפייה, חתימה, מילוי טפסים, מיזוג, פיצול והשחרה, בממשק עברי מלא. תוכנה חינמית ל-Windows שעובדת על המחשב שלכם, בלי להעלות קבצים לשום מקום.</p>
+      <p class="lead">צפייה, עריכת הטקסט שבמסמך, חתימה, מילוי טפסים, מיזוג, פיצול והשחרה, בממשק עברי מלא. תוכנה חינמית ל-Windows שעובדת על המחשב שלכם, בלי להעלות קבצים לשום מקום.</p>
       <div class="cta-row">
         <a class="btn btn-gold" href="/download" data-dl>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
@@ -260,7 +265,7 @@
         <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>חינם, בלי פרסומות ובלי הרשמה</li>
         <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>קוד פתוח</li>
       </ul>
-      <div class="shot"><img src="shot-sign.webp" alt="חלון התוכנה: טופס בקשה להחזר הוצאות ממולא בעברית, עם כלי חתימה וטקסט בצד" width="1440" height="872"></div>
+      <div class="shot"><img src="shot-sign.webp" alt="חלון התוכנה: טופס בקשה להחזר הוצאות ממולא בעברית, עם סימון V בתיבה, חתימה והערה באדום, ולוח הכלים של טקסט וחתימה בצד" width="1440" height="873"></div>
     </div>
   </section>
 
@@ -290,9 +295,18 @@
     <div class="wrap">
       <div class="sec-head">
         <h2 id="h-feat">מה אפשר לעשות</h2>
-        <p>כל קובץ נפתח בלשונית משלו. שומרים ישירות לקובץ, או בשם חדש.</p>
+        <p>כל קובץ נפתח בלשונית משלו. קוראים בעמוד יחיד, בגלילה רציפה או שני עמודים זה לצד זה, ושומרים ישירות לקובץ או בשם חדש.</p>
       </div>
       <div class="grid">
+        <article class="feat wide flip">
+          <div>
+            <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg></div>
+            <h3>עריכת הטקסט שכבר במסמך</h3>
+            <p>לוחצים על שורה בעמוד ומתקנים אותה במקום: סכום, תאריך, שם או משפט שלם. השורה הישנה נמחקת מהקובץ, לא רק מוסתרת, והחדשה נכתבת בעברית תקינה באותו מקום, באותו גודל ובאותו צבע.</p>
+            <p>אפשר גם לשנות גודל, הדגשה, יישור וצבע, למחוק שורה, ולראות בצד רשימה של כל השינויים עם החזרה למקור בלחיצה.</p>
+          </div>
+          <img src="shot-edit.webp" alt="עריכת טקסט: שורת הנדון במכתב פתוחה לעריכה עם סכום מעודכן, ובצד לוח עם פונט, גודל, יישור, צבע ורשימת השינויים במסמך" width="1440" height="600" loading="lazy">
+        </article>
         <article class="feat">
           <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17c3-6 5-9 6-8.7 1.2.3-.8 6.6.4 6.8 1 .2 2.6-3.8 3.6-3.6.8.2.3 2.4 2 2.6 1 .1 2-1 3-2"/><path d="M3 21h18"/></svg></div>
           <h3>חתימה</h3>
@@ -305,13 +319,13 @@
         </article>
         <article class="feat">
           <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg></div>
-          <h3>טקסט, תאריך וחותמת</h3>
-          <p>מוסיפים טקסט בכל מקום בדף, בגודל ובצבע שבוחרים. תאריך בלחיצה, וחותמת מתמונה.</p>
+          <h3>טקסט, תאריך, סימון וחותמת</h3>
+          <p>מוסיפים טקסט בכל מקום בדף, בגודל ובצבע שבוחרים. תאריך בלחיצה, סימון V או X בתיבות, וחותמת מתמונה.</p>
         </article>
         <article class="feat">
           <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h6l3 3v8H5z"/><path d="M10 10h6l3 3v8h-9z"/></svg></div>
           <h3>מיזוג וסידור</h3>
-          <p>מאחדים כמה קבצים לאחד, גוררים עמודים לסדר הרצוי, מסובבים, משכפלים ומוחקים.</p>
+          <p>מאחדים כמה קבצים לאחד, גוררים עמודים לסדר הרצוי, מסובבים, משכפלים ומוחקים. וגם סימן מים ומספור עמודים בעברית.</p>
         </article>
         <article class="feat">
           <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 8.1 20 20M8.1 15.9 20 4"/></svg></div>
@@ -329,7 +343,7 @@
             <h3>משתלבת ב-Windows</h3>
             <p>קליק ימני על קבצי PDF בסייר: פתיחה, מיזוג או פיצול בלי לפתוח את התוכנה קודם. וגם תמונה ממוזערת של העמוד הראשון בסייר, במקום אייקון. כל אלה מופעלים בלחיצה אחת מתוך התוכנה, ואפשר לכבות אותם באותה דרך.</p>
           </div>
-          <img src="shot-pages.webp" alt="מסך העמודים: שלושה קבצים ממוזגים, כל עמוד מסומן בלשונית בצבע הקובץ שלו" width="1440" height="872" loading="lazy">
+          <img src="shot-pages.webp" alt="מסך המיזוג: שלושה קבצים ממוזגים לשישה עמודים, כל עמוד מסומן בלשונית בצבע הקובץ שלו" width="1440" height="873" loading="lazy">
         </article>
       </div>
     </div>
@@ -340,8 +354,14 @@
       <div class="soon-card">
         <span class="soon-badge">בפיתוח</span>
         <div>
-          <h2 id="h-soon">הצעד הבא: עריכת הטקסט שכבר במסמך</h2>
-          <p>היום מוסיפים טקסט, חתימות ושדות על גבי המסמך. בגרסה הבאה אפשר יהיה לתקן גם את הטקסט המקורי עצמו, מילה או שורה, בלי לשבור את העברית סביבו. ההתקנה של גרסה חדשה מעדכנת את הקיימת, כך שזה יגיע אליכם בהורדה אחת.</p>
+          <h2 id="h-soon">הצעד הבא: אבטחת מסמכים</h2>
+          <p>אנחנו עובדים עכשיו על הגנה למסמכים, שתגיע בגרסה הבאה:</p>
+          <ul class="soon-list">
+            <li><b>קבצים מוגנים בסיסמה:</b> פותחים אותם ישירות בתוכנה, ואפשר לשמור עותק בלי הסיסמה.</li>
+            <li><b>הגנה בסיסמה בשמירה:</b> סיסמה לפתיחת הקובץ, ובחירה מה מותר למי שמקבל אותו: הדפסה, העתקה או עריכה.</li>
+            <li><b>חתימה דיגיטלית עם תעודה:</b> חתימה שמוכיחה מי חתם ושהמסמך לא שונה אחרי החתימה. קודם עם קובץ תעודה, ובהמשך גם עם כרטיס חכם.</li>
+          </ul>
+          <p>ההתקנה של גרסה חדשה מעדכנת את הקיימת, כך שזה יגיע אליכם בהורדה אחת.</p>
         </div>
       </div>
     </div>
@@ -424,6 +444,14 @@
         <details>
           <summary>האם ההשחרה באמת מוחקת?</summary>
           <p>כן. עמוד עם השחרה נשמר מחדש כתמונה, והמלבנים השחורים צרובים בה. הטקסט המקורי של אותו עמוד לא נשאר בקובץ בשום צורה, גם לא מוסתר. החיסרון: טקסט אחר באותו עמוד כבר לא ניתן לבחירה או לחיפוש. שאר העמודים לא משתנים.</p>
+        </details>
+        <details>
+          <summary>אפשר לערוך כל מסמך?</summary>
+          <p>כל מסמך שיש בו טקסט אמיתי, למשל קובץ שנשמר מ-Word או מתוכנה אחרת. עורכים שורה אחת בכל פעם: אם השורה החדשה ארוכה מהמקורית, הפסקה סביבה לא מסתדרת מחדש. השורה נכתבת מחדש בגופן IBM Plex או Alef. במסמך סרוק כל עמוד הוא תמונה ואין בו טקסט לערוך, ואז מכסים בכיסוי לבן וכותבים מעל עם כלי הטקסט.</p>
+        </details>
+        <details>
+          <summary>מה עם קבצים מוגנים בסיסמה?</summary>
+          <p>בגרסה הנוכחית צריך להסיר את הסיסמה בתוכנה אחרת לפני שפותחים. פתיחה של קבצים מוגנים, הוספת סיסמה בשמירה וחתימה דיגיטלית עם תעודה נמצאות בפיתוח ויגיעו בגרסה הבאה.</p>
         </details>
         <details>
           <summary>זה עולה כסף? יש מגבלות?</summary>
