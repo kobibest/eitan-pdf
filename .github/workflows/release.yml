@@ -1,6 +1,7 @@
 # בונה את תוכנת ההתקנה ומפרסם אותה ב-Releases בכל פעם שמספר הגרסה ב-package.json משתנה.
-# הקישור הקבוע להורדה של הגרסה האחרונה:
+# הקישורים הקבועים להורדה של הגרסה האחרונה:
 #   https://github.com/kobibest/eitan-pdf/releases/latest/download/EitanPDF-Setup-x64.exe
+#   https://github.com/kobibest/eitan-pdf/releases/latest/download/EitanPDF-mac.dmg
 name: Release
 
 on:
@@ -15,11 +16,17 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      exists: ${{ steps.v.outputs.exists }}
+      mac_missing: ${{ steps.v.outputs.mac_missing }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Read version
         id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -27,6 +34,12 @@ jobs:
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+          # גרסה שכבר פורסמה בלי קובץ מאק — משלימים רק את המאק
+          if gh release view "v$VERSION" --json assets -q '.assets[].name' 2>/dev/null | grep -qx 'EitanPDF-mac.dmg'; then
+            echo "mac_missing=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "mac_missing=true" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/setup-node@v4
@@ -56,3 +69,38 @@ jobs:
           files: |
             dist/EitanPDF-Setup-x64.exe
             dist/EitanPDF-Setup-${{ steps.v.outputs.version }}-x64.exe
+
+  # גרסת macOS — נבנית על מחשב Mac של GitHub ומתווספת לאותו Release.
+  # חתימה ואישור של Apple מופעלים רק אם הוגדרו הסודות (ראו installer/build-mac.sh).
+  build-mac:
+    needs: build
+    if: needs.build.outputs.exists == 'false' || needs.build.outputs.mac_missing == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build dmg
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          npm ci
+          npm test
+          installer/build-mac.sh
+          cp "dist/EitanPDF-${{ needs.build.outputs.version }}-mac.dmg" dist/EitanPDF-mac.dmg
+
+      - name: Add to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          files: |
+            dist/EitanPDF-mac.dmg
+            dist/EitanPDF-${{ needs.build.outputs.version }}-mac.dmg

@@ -90,8 +90,8 @@ const TOOLS = [
   { id: 'edit', label: 'עריכת טקסט', icon: 'textEdit', doc: true },
   { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
   { id: 'security', label: 'אבטחה', icon: 'lock', doc: true },
-  { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true },
-];
+  { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true, winOnly: true },
+].filter((t) => !t.winOnly || !window.api || !window.api.platform || window.api.platform === 'win32');
 const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'edit', 'forms', 'security']);
 
 const docs = new Map(); // id → מסמך
