@@ -13,7 +13,7 @@
 <link rel="icon" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&family=Rubik:wght@600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --navy: #0B2A82;
@@ -232,10 +232,82 @@
     .step { grid-template-columns: 1fr; padding: 22px 20px; }
     .btn { width: 100%; justify-content: center; }
   }
+  /* איתןPDF כמוצר של "איתן | דיגיטציה ארגונית": פס עליון, אזור "מי בנה" ופוטר, במיתוג של digital.m-eitan.co.il */
+  .by { background: #171A2F; color: #B7BDD0; font-size: 14px; }
+  .by .wrap { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding-top: 6px; padding-bottom: 6px; flex-wrap: wrap; text-align: center; }
+  .by a { color: #fff; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+  .by a svg { width: 20px; height: 20px; flex: none; }
+  .by a .arr { color: #7FE0BF; font-weight: 500; }
+  .by a:hover .arr { text-decoration: underline; }
+  .maker { background: #171A2F; color: #fff; }
+  .maker-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 56px; align-items: center; }
+  .maker .eyebrow { color: #7FE0BF; font-weight: 600; font-size: 15px; margin: 0 0 12px; }
+  .maker h2 { font-family: 'Rubik', 'IBM Plex Sans Hebrew', Arial, sans-serif; font-weight: 700; font-size: clamp(28px, 3.6vw, 40px); line-height: 1.15; margin: 0 0 18px; }
+  .maker p { color: #D5DAE7; margin: 0 0 16px; font-size: 17px; }
+  .maker ul { list-style: none; padding: 0; margin: 0 0 26px; display: grid; gap: 10px; }
+  .maker li { position: relative; padding-inline-start: 26px; color: #fff; }
+  .maker li::before { content: ""; position: absolute; inset-inline-start: 0; top: .55em; width: 12px; height: 12px; border-radius: 3px; background: #12B886; }
+  .maker-cta { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  .maker .btn-green { background: #12B886; color: #171A2F; font-weight: 700; text-decoration: none; padding: 13px 24px; border-radius: 10px; }
+  .maker .btn-green:hover { background: #0FA578; }
+  .maker .link { color: #B7BDD0; text-underline-offset: 3px; }
+  .maker .link:hover { color: #fff; }
+  .maker-card { background: #20243D; border: 1px solid #2E3456; border-radius: 18px; padding: 28px; }
+  .maker-brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: #fff; margin-bottom: 22px; }
+  .maker-brand svg { width: 48px; height: 48px; flex: none; }
+  .maker-brand b { display: block; font-family: 'Rubik', Arial, sans-serif; font-weight: 700; font-size: 28px; line-height: 1; }
+  .maker-brand small { display: block; color: #B7BDD0; font-size: 14px; margin-top: 4px; }
+  .maker-me { display: flex; align-items: center; gap: 14px; padding-top: 20px; border-top: 1px solid #2E3456; }
+  .maker-me img { width: 64px; height: 64px; border-radius: 50%; flex: none; }
+  .maker-me p { margin: 0; font-size: 15px; color: #B7BDD0; }
+  .maker-me b { display: block; color: #fff; font-size: 17px; }
+  .maker .nw { white-space: nowrap; color: #7FE0BF; }
+  footer .foot-by { display: inline-flex; align-items: center; gap: 8px; }
+  footer .foot-by svg { width: 22px; height: 22px; flex: none; }
+  @media (max-width: 920px) { .maker-grid { grid-template-columns: 1fr; gap: 36px; } }
+  @media (max-width: 600px) { .by { font-size: 13px; } .maker-card { padding: 22px; } }
+
+  /* באנר צף: איתן | דיגיטציה ארגונית (המיתוג של digital.m-eitan.co.il) */
+  .ed {
+    --ed-ink: #171A2F; --ed-green: #12B886; --ed-mint: #7FE0BF; --ed-muted: #B7BDD0; --ed-line: #2E3456;
+    position: fixed; z-index: 50; inset-inline-start: 20px; bottom: 20px; width: 340px; max-width: calc(100vw - 32px);
+    background: var(--ed-ink); color: #fff; border: 1px solid var(--ed-line); border-radius: 16px;
+    padding: 18px 18px 16px; box-shadow: 0 24px 48px -18px rgba(10,12,30,.55);
+    font-family: 'IBM Plex Sans Hebrew', 'Segoe UI', system-ui, sans-serif; line-height: 1.55;
+    opacity: 0; transform: translateY(16px); transition: opacity .35s ease, transform .35s ease; pointer-events: none;
+  }
+  .ed.on { opacity: 1; transform: none; pointer-events: auto; }
+  .ed.on.away { opacity: 0; transform: translateY(16px); pointer-events: none; }
+  .ed[hidden] { display: none; }
+  .ed-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #fff; margin-inline-end: 28px; }
+  .ed-brand svg { width: 38px; height: 38px; flex: none; }
+  .ed-brand b { display: block; font-family: 'Rubik', Arial, sans-serif; font-weight: 700; font-size: 1.3rem; line-height: 1; }
+  .ed-brand small { display: block; font-size: .8rem; color: var(--ed-muted); font-weight: 500; margin-top: 3px; }
+  .ed p { margin: 12px 0 14px; font-size: .95rem; color: #E6E9F2; }
+  .ed p strong { color: var(--ed-mint); font-weight: 600; }
+  .ed-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .ed-cta { background: var(--ed-green); color: var(--ed-ink); font-weight: 600; font-size: .95rem; text-decoration: none; padding: 9px 16px; border-radius: 10px; }
+  .ed-cta:hover { background: #0FA578; }
+  .ed-more { color: var(--ed-muted); font-size: .9rem; text-decoration: underline; text-underline-offset: 3px; }
+  .ed-more:hover { color: #fff; }
+  .ed-x { position: absolute; top: 10px; inset-inline-end: 10px; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--ed-muted); font-size: 22px; line-height: 1; cursor: pointer; }
+  .ed-x:hover { background: var(--ed-line); color: #fff; }
+  .ed a:focus-visible, .ed button:focus-visible { outline: 3px solid var(--ed-green); outline-offset: 3px; }
+  @media (max-width: 600px) {
+    .ed { inset-inline: 12px; bottom: 12px; width: auto; max-width: none; padding: 14px 14px 12px; }
+    .ed p { font-size: .9rem; margin: 10px 0 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .ed { transition: none; } }
 </style>
 </head>
 <body>
 
+<div class="by">
+  <div class="wrap">
+    <span>איתןPDF נבנתה ומתוחזקת על ידי</span>
+    <a href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=topbar" target="_blank" rel="noopener"><svg viewBox="0 0 120 120" aria-hidden="true"><rect x="46" y="10" width="28" height="28" rx="6" fill="#12B886"/><rect x="57" y="38" width="6" height="14" fill="#fff"/><rect x="24" y="50" width="72" height="6" rx="3" fill="#fff"/><rect x="24" y="52" width="6" height="16" fill="#fff"/><rect x="57" y="52" width="6" height="16" fill="#fff"/><rect x="90" y="52" width="6" height="16" fill="#fff"/><rect x="13" y="68" width="28" height="28" rx="6" fill="#fff"/><rect x="46" y="68" width="28" height="28" rx="6" fill="#fff"/><rect x="79" y="68" width="28" height="28" rx="6" fill="#fff"/></svg>איתן | דיגיטציה ארגונית <span class="arr">לאתר ←</span></a>
+  </div>
+</div>
 <header class="top">
   <div class="wrap">
     <a class="brand" href="#" aria-label="איתןPDF, לראש העמוד"><img src="logo.png" alt="" width="36" height="36"><span>איתן<span class="pdf">PDF</span></span></a>
@@ -469,6 +541,33 @@
     </div>
   </section>
 
+  <section class="maker" id="maker" aria-labelledby="h-maker">
+    <div class="wrap maker-grid">
+      <div>
+        <p class="eyebrow">מי עומד מאחורי איתןPDF</p>
+        <h2 id="h-maker">נבנתה על ידי קובי איתן, <span class="nw">איתן | דיגיטציה ארגונית</span></h2>
+        <p>איתןPDF נולדה מאותה עבודה שאני עושה בעסקים ובארגונים: למצוא איפה העבודה מסורבלת, ולבנות כלי שפשוט עובד. התוכנה חינמית ונשארת חינמית.</p>
+        <p>אם גם אצלכם הרבה עבודה עוברת דרך אקסלים, טפסים ומיילים, זה בדיוק מה שאני עושה: אבחון, אסטרטגיה דיגיטלית והטמעה בפועל של CRM, ERP, בוטים וחיבור בין מערכות.</p>
+        <ul>
+          <li>יועץ ארגוני מוסמך, בוגר לימודי ייעוץ ארגוני באוניברסיטת בר־אילן</li>
+          <li>אותו אדם מאבחן, מתכנן, בונה ומטמיע</li>
+          <li>מפתח מערכת איתן, שמשמשת מאות יועצים</li>
+        </ul>
+        <div class="maker-cta">
+          <a class="btn-green" href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=maker#contact" target="_blank" rel="noopener">לשיחת ייעוץ חינם, כ־20 דקות</a>
+          <a class="link" href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=maker" target="_blank" rel="noopener">לאתר איתן | דיגיטציה ארגונית</a>
+        </div>
+      </div>
+      <div class="maker-card">
+        <a class="maker-brand" href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=maker" target="_blank" rel="noopener" aria-label="איתן, דיגיטציה ארגונית"><svg viewBox="0 0 120 120" aria-hidden="true"><rect x="46" y="10" width="28" height="28" rx="6" fill="#12B886"/><rect x="57" y="38" width="6" height="14" fill="#fff"/><rect x="24" y="50" width="72" height="6" rx="3" fill="#fff"/><rect x="24" y="52" width="6" height="16" fill="#fff"/><rect x="57" y="52" width="6" height="16" fill="#fff"/><rect x="90" y="52" width="6" height="16" fill="#fff"/><rect x="13" y="68" width="28" height="28" rx="6" fill="#fff"/><rect x="46" y="68" width="28" height="28" rx="6" fill="#fff"/><rect x="79" y="68" width="28" height="28" rx="6" fill="#fff"/></svg><span><b>איתן</b><small>דיגיטציה ארגונית</small></span></a>
+        <div class="maker-me">
+          <img src="kobi-face.webp" width="64" height="64" loading="lazy" decoding="async" alt="קובי איתן">
+          <p><b>קובי איתן</b>יועץ ארגוני מוסמך. כל פנייה מגיעה אליי ישירות.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="final" aria-labelledby="h-final">
     <div class="wrap">
       <h2 id="h-final">מוכנים לנסות?</h2>
@@ -483,7 +582,7 @@
 
 <footer>
   <div class="wrap">
-    <span>איתןPDF נבנתה על ידי <a href="https://m-eitan.co.il">קובי איתן</a>. קוד פתוח ברישיון MIT.</span>
+    <span class="foot-by"><svg viewBox="0 0 120 120" aria-hidden="true"><rect x="46" y="10" width="28" height="28" rx="6" fill="#12B886"/><rect x="57" y="38" width="6" height="14" fill="#fff"/><rect x="24" y="50" width="72" height="6" rx="3" fill="#fff"/><rect x="24" y="52" width="6" height="16" fill="#fff"/><rect x="57" y="52" width="6" height="16" fill="#fff"/><rect x="90" y="52" width="6" height="16" fill="#fff"/><rect x="13" y="68" width="28" height="28" rx="6" fill="#fff"/><rect x="46" y="68" width="28" height="28" rx="6" fill="#fff"/><rect x="79" y="68" width="28" height="28" rx="6" fill="#fff"/></svg><span>איתןPDF נבנתה על ידי <a href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=footer">קובי איתן, איתן | דיגיטציה ארגונית</a>. קוד פתוח ברישיון MIT.</span></span>
     <span class="foot-links"><button type="button" class="foot-nl" data-nl-open>עדכונים במייל</button><a href="/privacy">פרטיות</a><a href="https://github.com/kobibest/eitan-pdf">GitHub</a><a href="https://github.com/kobibest/eitan-pdf/releases">כל הגרסאות</a><a href="mailto:kobi@eitan-m.co.il">יצירת קשר</a></span>
   </div>
 </footer>
@@ -502,7 +601,7 @@
       <div class="nl-f"><label for="nl-email">כתובת מייל</label><input id="nl-email" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="254" placeholder="name@example.com"></div>
       <div class="nl-hp" aria-hidden="true"><label for="nl-website">אתר</label><input id="nl-website" name="website" type="text" tabindex="-1" autocomplete="off"></div>
       <label class="nl-consent"><input type="checkbox" id="nl-consent" name="consent" required>
-        <span>אני מאשר/ת לקבל מאיתןPDF (קובי איתן) הודעות דוא"ל על גרסאות חדשות ועדכונים לתוכנה. אפשר להסיר את עצמי בכל עת, בקישור שמופיע בכל הודעה או בתשובה למייל.</span></label>
+        <span>אני מאשר/ת לקבל מאיתןPDF (קובי איתן, איתן | דיגיטציה ארגונית) הודעות דוא"ל על גרסאות חדשות ועדכונים לתוכנה. אפשר להסיר את עצמי בכל עת, בקישור שמופיע בכל הודעה או בתשובה למייל.</span></label>
       <button class="btn btn-gold" type="submit" id="nl-submit">הרשמה לעדכונים</button>
       <button class="nl-skip" type="button" data-nl-close>לא תודה</button>
       <p class="nl-fine">אין חובה למסור את הפרטים. הם משמשים רק לשליחת העדכונים, נשמרים אצל ספק הדיוור Resend ולא מועברים לאף אחד אחר. אפשר לבקש לעיין בהם, לתקן או למחוק. <a href="/privacy" target="_blank">מדיניות הפרטיות</a></p>
@@ -600,6 +699,38 @@
         $('nl-form').hidden = true; $('nl-ok').hidden = false;
       } catch (ex) { show(ex.message); }
       btn.disabled = false; btn.textContent = 'הרשמה לעדכונים';
+    });
+  })();
+</script>
+<aside class="ed" id="ed" aria-label="איתן, דיגיטציה ארגונית" hidden>
+  <button type="button" class="ed-x" id="ed-x" aria-label="סגירת הבאנר">×</button>
+  <a class="ed-brand" href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=floating_banner" target="_blank" rel="noopener">
+    <svg viewBox="0 0 120 120" aria-hidden="true"><rect x="46" y="10" width="28" height="28" rx="6" fill="#12B886"/><rect x="57" y="38" width="6" height="14" fill="#fff"/><rect x="24" y="50" width="72" height="6" rx="3" fill="#fff"/><rect x="24" y="52" width="6" height="16" fill="#fff"/><rect x="57" y="52" width="6" height="16" fill="#fff"/><rect x="90" y="52" width="6" height="16" fill="#fff"/><rect x="13" y="68" width="28" height="28" rx="6" fill="#fff"/><rect x="46" y="68" width="28" height="28" rx="6" fill="#fff"/><rect x="79" y="68" width="28" height="28" rx="6" fill="#fff"/></svg>
+    <span><b>איתן</b><small>דיגיטציה ארגונית</small></span>
+  </a>
+  <p>מאותו יוצר של איתןPDF: עבודה מסורבלת עולה כסף. <strong>אבחון, אסטרטגיה והטמעה</strong> של CRM, ERP, בוטים וחיבור בין מערכות.</p>
+  <div class="ed-actions">
+    <a class="ed-cta" href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=floating_banner#contact" target="_blank" rel="noopener">לשיחת ייעוץ חינם</a>
+    <a class="ed-more" href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=floating_banner" target="_blank" rel="noopener">לאתר</a>
+  </div>
+</aside>
+<script>
+  (function () {
+    const K = 'ed-banner-closed', box = document.getElementById('ed');
+    let closed = null; try { closed = localStorage.getItem(K); } catch (e) {}
+    if (!box || (closed && Date.now() - Number(closed) < 14 * 864e5)) return;
+    box.hidden = false;
+    const show = () => { if (window.scrollY > 500) { box.classList.add('on'); window.removeEventListener('scroll', show); } };
+    window.addEventListener('scroll', show, { passive: true });
+    setTimeout(() => box.classList.add('on'), 12000);
+    // באזור "מי בנה" כבר יש את אותו מידע — מסתירים את הבאנר כדי לא להכפיל.
+    const maker = document.getElementById('maker');
+    if (maker && 'IntersectionObserver' in window) {
+      new IntersectionObserver(([en]) => box.classList.toggle('away', en.isIntersecting)).observe(maker);
+    }
+    document.getElementById('ed-x').addEventListener('click', () => {
+      box.classList.remove('on'); setTimeout(() => { box.hidden = true; }, 350);
+      try { localStorage.setItem(K, String(Date.now())); } catch (e) {}
     });
   })();
 </script>
