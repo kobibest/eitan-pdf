@@ -12,6 +12,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [ "$(uname)" = "Darwin" ] || { echo "הבנייה ל-macOS חייבת לרוץ על macOS" >&2; exit 1; }
 
+# סודות שלא הוגדרו ב-GitHub מגיעים כמחרוזת ריקה — electron-builder מתייחס אליה כנתיב, אז מסירים אותם
+for v in CSC_LINK CSC_KEY_PASSWORD CSC_NAME APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+  [ -n "${!v:-}" ] || unset "$v"
+done
+
 EXTRA=()
 if [ -z "${CSC_LINK:-}" ] && [ -z "${CSC_NAME:-}" ]; then
   echo "אין תעודת Apple — חתימת ad-hoc"
