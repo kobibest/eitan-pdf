@@ -80,7 +80,8 @@ jobs:
           export EITANPDF_KEYSTORE="$RUNNER_TEMP/upload.jks"
           echo "$KS_B64" | base64 -d > "$EITANPDF_KEYSTORE"
           npm ci
-          npm run build:web
+          # כולל בדיקות של החתימה הדיגיטלית כפי שהיא רצה ב-WebView
+          npm test
           npx cap sync android
           cd android
           ./gradlew bundleRelease assembleRelease --no-daemon --stacktrace

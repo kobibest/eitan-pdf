@@ -125,6 +125,39 @@ public class EitanFilesPlugin extends Plugin {
         });
     }
 
+    /** בחירת קובץ מכל סוג (למשל תעודה ‎.pfx/.p12). לא שומר הרשאה קבועה — הקובץ רק נקרא */
+    @PluginMethod
+    public void pickFile(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivityForResult(call, intent, "pickFileResult");
+    }
+
+    @ActivityCallback
+    private void pickFileResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        Intent data = result.getData();
+        if (result.getResultCode() != android.app.Activity.RESULT_OK || data == null || data.getData() == null) {
+            JSObject ret = new JSObject();
+            ret.put("cancelled", true);
+            call.resolve(ret);
+            return;
+        }
+        Uri uri = data.getData();
+        io.execute(() -> {
+            try {
+                JSObject f = importOne(uri);
+                f.put("writable", false);
+                call.resolve(f);
+            } catch (Exception e) {
+                Logger.error("EitanFiles", "pickFile", e);
+                call.reject("קריאת הקובץ נכשלה", e);
+            }
+        });
+    }
+
     /** הרשאה קבועה לקובץ שנבחר — כדי שאפשר יהיה לשמור מעליו גם אחר כך */
     private void keepPermission(Uri uri) {
         ContentResolver cr = getContext().getContentResolver();

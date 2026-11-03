@@ -7,7 +7,8 @@
   "scripts": {
     "build:web": "node scripts/build-web.mjs",
     "sync": "node scripts/build-web.mjs && cap sync android",
-    "apk": "node scripts/build-web.mjs && cap sync android && cd android && ./gradlew assembleDebug"
+    "apk": "node scripts/build-web.mjs && cap sync android && cd android && ./gradlew assembleDebug",
+    "test": "node scripts/build-web.mjs && node scripts/test-digisig.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
@@ -16,6 +17,8 @@
     "@capacitor/preferences": "^8.0.1"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.6.0"
+    "@capacitor/cli": "^8.6.0",
+    "buffer": "^6.0.3",
+    "esbuild": "^0.25.12"
   }
 }

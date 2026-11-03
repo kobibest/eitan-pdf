@@ -66,7 +66,12 @@ export async function loadSource(file, askPassword) {
   } catch {
     throw new Error(`לא הצלחנו לפתוח את "${iso(file.name)}". ייתכן שהקובץ פגום.`);
   }
-  return { id: 's' + seq++, name: file.name, bytes, pdf, security };
+  const src = { id: 's' + seq++, name: file.name, bytes, pdf, security, signatures: [] };
+  // חתימות דיגיטליות קיימות — נבדקות ברקע (כמו בדסקטופ)
+  src.signaturesReady = hasBytes(bytes, '/ByteRange') && window.DigiSig
+    ? window.DigiSig.verify(bytes).then((list) => { src.signatures = list || []; }).catch(() => {})
+    : Promise.resolve();
+  return src;
 }
 
 export class Doc {
@@ -226,7 +231,10 @@ export class Doc {
     for (const s of this.sources.values()) sources[s.id] = s.bytes;
     const ex = this.extras;
     const redacted = pages.map((p, i) => [i, (this.stamps[p.key] || []).filter((it) => it.type === 'redact')]).filter(([, r]) => r.length);
-    const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), this.stamps, this.formValues, {
+    // מיקום החתימה הדיגיטלית הוא לא חותמת — היא נוצרת רק בחתימה עצמה
+    const stamps = {};
+    for (const [k, list] of Object.entries(this.stamps)) stamps[k] = list.filter((it) => it.type !== 'digisig');
+    const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), stamps, this.formValues, {
       fonts,
       // בהשחרה משטחים את הטפסים — אחרת הערכים נשארים בשדות שמתחת (כמו בדסקטופ)
       flattenForms: redacted.length > 0,
@@ -244,6 +252,40 @@ export class Doc {
     const st = this.security;
     if (!st || (!st.password && !st.permissions)) return bytes;
     return Ops.encrypt(bytes, { userPassword: st.password, permissions: st.permissions || undefined });
+  }
+
+  /* ---------- חתימה דיגיטלית ---------- */
+
+  /** חתימות דיגיטליות קיימות במקורות שבשימוש */
+  async existingSignatures() {
+    const used = new Set(this.pages.map((p) => p.src));
+    const srcs = [...this.sources.values()].filter((s) => used.has(s.id));
+    await Promise.all(srcs.map((s) => s.signaturesReady));
+    return srcs.flatMap((s) => s.signatures || []);
+  }
+
+  /** מיקום החתימה הדיגיטלית הגלויה (אם הוצבה) */
+  findDigiSig() {
+    for (let i = 0; i < this.pages.length; i++) {
+      const it = (this.stamps[this.pages[i].key] || []).find((x) => x.type === 'digisig');
+      if (it) return { item: it, pageIndex: i, key: this.pages[i].key };
+    }
+    return null;
+  }
+
+  /**
+   * אם המסמך לא שונה (קובץ אחד, אותם עמודים, בלי תוספות) — חותמים על הקובץ המקורי עצמו,
+   * בעדכון מצטבר, כך שחתימות קודמות נשארות תקפות. אותם תנאים כמו בדסקטופ.
+   */
+  canSignOriginal() {
+    if (this.sources.size !== 1) return null;
+    const src = [...this.sources.values()][0];
+    if (src.security) return null; // פוענח — הבייטים כבר לא המקור
+    if (this.pages.length !== src.pdf.numPages || this.pages.some((p, i) => p.src !== src.id || p.index !== i || p.rotate)) return null;
+    if (Object.values(this.stamps).some((l) => l.some((it) => it.type !== 'digisig'))) return null;
+    if (Object.values(this.formValues).some((v) => v && Object.keys(v).length)) return null;
+    if (this.extras.watermark.enabled || this.extras.pageNumbers.enabled) return null;
+    return src;
   }
 
   destroy() {

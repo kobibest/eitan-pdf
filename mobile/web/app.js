@@ -5,6 +5,7 @@ import { Viewer } from './js/viewer.js';
 import { PagesEditor } from './js/pages.js';
 import { Annotator } from './js/annotate.js';
 import { drawSignature, savedSignatures, forgetSignature, imageRatio, closeSignaturePad, INK_COLORS } from './js/signature.js';
+import { chooseCert, openCert, certLine, signatureRow, heavy } from './js/digital.js';
 import { Doc, loadSource, baseName } from './js/doc.js';
 
 const Ops = window.PdfOps;
@@ -26,6 +27,7 @@ const S = {
   doc: null,     // Doc — המסמך הפתוח
   fonts: null,   // Alef, כמו בדסקטופ
   screen: 'home',
+  digi: { cert: null, reason: '', location: '' }, // חתימה דיגיטלית: התעודה שנבחרה ופרטי החתימה
 };
 
 const viewer = new Viewer($('#scroller'), $('#pages'), { onPageChange: showPagePill });
@@ -41,6 +43,7 @@ const annot = new Annotator(viewer, {
   },
   onEditText: (it) => editText(it),
   onField: (srcId, field) => fillField(srcId, field),
+  digiInfo: () => ({ signer: S.digi.cert && S.digi.cert.name, date: todayStr(), reason: S.digi.reason, location: S.digi.location }),
 });
 
 /** פתיחה מחדש של הצפייה (אחרי שינוי בעמודים) עם השכבה של החותמות והשדות */
@@ -126,6 +129,11 @@ async function openFiles(files) {
   refreshDoc();
   busy(true, 'פותח…');
   try { await showDoc(); } finally { busy(false); }
+  D.existingSignatures().then((sigs) => {
+    if (S.doc !== D || !sigs.length) return;
+    const bad = sigs.some((x) => !x.intact);
+    toast(bad ? 'במסמך יש חתימה דיגיטלית לא תקינה. פרטים בכלים ← חתימה דיגיטלית.' : `במסמך ${sigs.length === 1 ? 'חתימה דיגיטלית תקינה' : `${sigs.length} חתימות דיגיטליות`}. שינוי במסמך יבטל ${sigs.length === 1 ? 'אותה' : 'אותן'}.`, { error: bad, ms: 5000 });
+  });
   const nFields = annot.allFields().length;
   if (nFields) toast(`בקובץ יש ${nFields === 1 ? 'שדה טופס אחד' : `${nFields} שדות טופס`} (מסומנים בכחול). הקישו על שדה כדי למלא.`, { ms: 5000 });
 }
@@ -195,9 +203,22 @@ async function buildBytes(opts) {
   return S.doc.build(await fonts(), opts);
 }
 
+/** לפני שמירה שכותבת את הקובץ מחדש: אזהרה אם זה יבטל חתימות דיגיטליות (כמו בדסקטופ) */
+async function confirmBreakSignatures() {
+  const n = (await S.doc.existingSignatures()).length;
+  if (!n) return true;
+  const c = await choose('המסמך חתום דיגיטלית',
+    `במסמך יש ${n === 1 ? 'חתימה דיגיטלית' : `${n} חתימות דיגיטליות`}. שמירת השינויים תבטל ${n === 1 ? 'אותה' : 'אותן'}: מי שיפתח את הקובץ יראה שהחתימה לא תקפה. כדי להוסיף חתימה משלכם בלי לבטל את הקיימות, השתמשו ב"חתימה דיגיטלית" בכלים, בלי לשנות את המסמך.`, [
+      { id: 'save', label: 'לשמור בכל זאת', primary: true },
+      { id: 'cancel', label: 'ביטול' },
+    ]);
+  return c === 'save';
+}
+
 /** תפריט השמירה. מחזיר true אם נשמר */
 async function saveMenu() {
   const D = S.doc;
+  if (D.dirty && !(await confirmBreakSignatures())) return false;
   const canOver = isNative && !!D.origin.uri && D.origin.writable;
   const fromApp = isNative && D.origin.uri && !D.origin.writable;
   const choice = await menu([
@@ -630,6 +651,7 @@ const TOOL_ICON = {
   redact: '<svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor"/><path d="M3 5h8M3 19h12"/></svg>',
   img: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/></svg>',
   cam: '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  cert: '<svg viewBox="0 0 24 24"><path d="M5 3h10l4 4v8"/><path d="M5 3v18h7"/><circle cx="17" cy="17" r="3"/><path d="M15.5 19.5L15 23l2-1 2 1-.5-3.5"/></svg>',
 };
 
 async function toolsSheet() {
@@ -643,6 +665,7 @@ async function toolsSheet() {
       <div class="tools-grid">
         ${card('wm', TOOL_ICON.wm, 'סימן מים', ex.watermark.enabled ? `<span class="on">פעיל:</span> ${esc(ex.watermark.text)}` : 'טקסט שקוף באלכסון')}
         ${card('pn', TOOL_ICON.pn, 'מספרי עמודים', ex.pageNumbers.enabled ? '<span class="on">פעיל</span>' : 'בתחתית או בראש כל עמוד')}
+        ${card('digital', TOOL_ICON.cert, 'חתימה דיגיטלית', 'עם תעודה (‎.pfx) — מוכיחה מי חתם')}
         ${card('redact', TOOL_ICON.redact, 'השחרה', 'מוחקת לצמיתות את מה שמתחת')}
         ${card('img', TOOL_ICON.img, 'תמונות מהגלריה', 'כעמודים בסוף המסמך')}
         ${card('cam', TOOL_ICON.cam, 'צילום עמוד', 'במצלמה, כעמוד בסוף המסמך')}
@@ -651,6 +674,7 @@ async function toolsSheet() {
   });
   if (choice === 'wm') watermarkSheet();
   else if (choice === 'pn') pageNumbersSheet();
+  else if (choice === 'digital') digitalSheet();
   else if (choice === 'redact') addRedaction();
   else if (choice === 'img') addImages('gallery');
   else if (choice === 'cam') addImages('camera');
@@ -792,6 +816,134 @@ async function imagesToNewDoc(mode) {
   try { file = await imagesToSource(images, `${mode === 'camera' ? 'סריקה' : 'תמונות'} ${stamp}.pdf`); } catch (err) { console.error(err); toast('יצירת ה-PDF נכשלה.', { error: true }); return; } finally { busy(false); }
   await openFiles([file]);
   if (S.doc) { S.doc.dirty = true; refreshDoc(); }
+}
+
+/* ---------- חתימה דיגיטלית עם תעודה ---------- */
+
+async function digitalSheet() {
+  const D = S.doc;
+  const sigs = await D.existingSignatures();
+  const placed = D.findDigiSig();
+  const hasDrawn = (await savedSignatures()).length > 0;
+  const c = S.digi.cert;
+  const s = openSheet(`
+    <h2>חתימה דיגיטלית</h2>
+    <p>חתימה עם תעודה דיגיטלית מוכיחה מי חתם ושהמסמך לא שונה אחרי החתימה. זה שונה מחתימה מצוירת.</p>
+    ${sigs.length ? '<div class="sub-h">חתימות במסמך</div><div data-sigs></div>' : ''}
+    <div class="sub-h">תעודה</div>
+    ${c ? `<div class="cert-row chosen" data-cert role="button"><div><b dir="auto">${esc(c.name)}</b><small>${esc(certLine(c))}</small></div><small>החלפה</small></div>`
+        : '<button class="btn quiet" data-cert>בחירת תעודה…</button>'}
+    <label class="lbl">סיבת החתימה (רשות)</label>
+    <input class="field" dir="auto" data-d="reason">
+    <label class="lbl">מקום (רשות)</label>
+    <input class="field" dir="auto" data-d="location" placeholder="למשל: תל אביב">
+    <div class="sub-h">מראה בעמוד</div>
+    <button class="btn quiet" data-place>${placed ? `החתימה בעמוד ${placed.pageIndex + 1} · הצבה מחדש` : 'הצבת החתימה בעמוד'}</button>
+    ${placed && hasDrawn ? `<label class="check-row"><input type="checkbox" data-img ${placed.item.image ? 'checked' : ''}><span>עם תמונת החתימה שלי</span></label>` : ''}
+    ${placed ? '<button class="btn quiet" data-unplace>הסרת המיקום (חתימה בלתי נראית)</button>' : '<p class="hint">בלי הצבה, החתימה בלתי נראית בעמוד, אבל קיימת בקובץ.</p>'}
+    <div class="actions col" style="margin-top:14px"><button class="btn" data-sign>חתימה ושמירה…</button></div>
+    <p class="hint">החתימה היא הפעולה האחרונה: היא נשמרת לקובץ חדש, וכל שינוי אחריה יבטל אותה. אין חותמת זמן מאושרת (נדרש חיבור לאינטרנט).</p>`);
+  const w = s.wrap;
+  const list = w.querySelector('[data-sigs]');
+  if (list) sigs.forEach((x) => list.append(signatureRow(x)));
+  w.querySelectorAll('[data-d]').forEach((inp) => {
+    inp.value = S.digi[inp.dataset.d] || '';
+    inp.addEventListener('input', () => { S.digi[inp.dataset.d] = inp.value; annot.renderAll(); });
+  });
+  w.querySelector('[data-cert]').addEventListener('click', async () => {
+    const chosen = await chooseCert();
+    if (chosen) { S.digi.cert = chosen; annot.renderAll(); }
+    s.close();
+    digitalSheet();
+  });
+  w.querySelector('[data-place]').addEventListener('click', async () => {
+    s.close();
+    await placeDigiSig();
+  });
+  const img = w.querySelector('[data-img]');
+  if (img) img.addEventListener('change', async () => {
+    const drawn = (await savedSignatures())[0] || null;
+    D.updateStamp(placed.item.id, { image: img.checked ? drawn : null });
+    annot.renderAll();
+    refreshDoc();
+  });
+  const un = w.querySelector('[data-unplace]');
+  if (un) un.addEventListener('click', () => { annot.remove(placed.item.id); s.close(); digitalSheet(); });
+  w.querySelector('[data-sign]').addEventListener('click', () => { s.close(); digitalSignAndSave(); });
+}
+
+/** מסגרת החתימה הגלויה במרכז המסך — אחת בלבד במסמך */
+async function placeDigiSig() {
+  const D = S.doc;
+  const prev = D.findDigiSig();
+  const image = prev ? prev.item.image : ((await savedSignatures())[0] || null);
+  if (prev) D.removeStamp(prev.item.id);
+  placeStamp({ type: 'digisig', w: 210, h: 62, image });
+  toast('גררו את מסגרת החתימה למקום. הפינה משנה את הגודל. החתימה תיווצר ב"חתימה ושמירה".', { ms: 5000 });
+}
+
+async function digitalSignAndSave() {
+  const D = S.doc;
+  if (!D || !window.DigiSig) return;
+  if (D.security && (D.security.password || D.security.permissions)) {
+    const c = await choose('חתימה דיגיטלית והגנה בסיסמה',
+      'אי אפשר לשמור באותו קובץ גם חתימה דיגיטלית וגם סיסמה או הגבלות: ההצפנה אחרי החתימה מבטלת אותה. אפשר לחתום ולשמור בלי הגנה, ולשלוח את הקובץ בדרך מאובטחת.', [
+        { id: 'go', label: 'חתימה בלי הגנה', primary: true },
+        { id: 'cancel', label: 'ביטול' },
+      ]);
+    if (c !== 'go') return;
+    D.security = null;
+  }
+  if (!S.digi.cert) {
+    const chosen = await chooseCert();
+    if (!chosen) return;
+    S.digi.cert = chosen;
+    annot.renderAll();
+  }
+  // הסיסמה נשאלת בכל חתימה
+  let cert;
+  for (let wrong = false; ;) {
+    const pw = await prompt({ title: wrong ? 'הסיסמה שגויה' : 'סיסמת התעודה', text: wrong ? 'נסו שוב.' : `כדי לחתום בשם "${iso(S.digi.cert.name)}".`, type: 'password', ok: 'חתימה' });
+    if (pw == null) return;
+    try { cert = openCert(S.digi.cert, pw); cert.password = pw; break; } catch (err) {
+      if (/סיסמה/.test(err.message)) { wrong = true; continue; }
+      toast(err.message, { error: true });
+      return;
+    }
+  }
+  const original = D.canSignOriginal();
+  if (!original && !(await confirmBreakSignatures())) return;
+  const placed = D.findDigiSig();
+  let signed;
+  try {
+    const f = await fonts();
+    signed = await heavy('חותם…', async () => {
+      const bytes = original ? original.bytes : await D.build(f, { protect: false });
+      const when = new Date();
+      const date = when.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + when.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+      const DS = window.DigiSig;
+      return DS.signPdf(bytes, DS.p12Signer(cert.bytes, cert.password), {
+        pageIndex: placed ? placed.pageIndex : 0,
+        rect: placed ? { x: placed.item.x, y: placed.item.y, w: placed.item.w, h: placed.item.h } : null,
+        name: cert.info.name,
+        reason: S.digi.reason,
+        location: S.digi.location,
+        signingTime: when,
+        appearance: placed ? { fonts: f, signer: cert.info.name, date, reason: S.digi.reason, location: S.digi.location, image: placed.item.image || null, color: '#1F35B5' } : null,
+      });
+    });
+  } catch (err) {
+    console.error(err);
+    toast('החתימה נכשלה: ' + (err.message || err), { error: true });
+    return;
+  }
+  let res;
+  try { res = await saveAs(`${D.name} - חתום.pdf`, signed); } catch (err) { console.error(err); toast('השמירה נכשלה.', { error: true }); return; }
+  if (!res) { toast('החתימה בוטלה: הקובץ החתום לא נשמר.'); return; }
+  // פותחים את הקובץ החתום, כדי שכל שינוי נוסף יציג אזהרה על ביטול החתימה
+  D.dirty = false;
+  await openFiles([{ name: res.name || `${D.name} - חתום.pdf`, bytes: new Uint8Array(signed), uri: res.uri, writable: !!res.writable }]);
+  toast('המסמך נחתם ונשמר.');
 }
 
 /* ---------- טפסים ---------- */

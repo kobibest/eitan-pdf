@@ -53,7 +53,8 @@ jobs:
         working-directory: mobile
         run: |
           npm ci
-          npm run build:web
+          # כולל בדיקות של החתימה הדיגיטלית כפי שהיא רצה ב-WebView
+          npm test
           npx cap sync android
           cd android
           # bundleRelease (AAB לא חתום — הפורמט של חנות Play) מריץ גם את בדיקות lintVital של שחרור,

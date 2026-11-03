@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import * as esbuild from 'esbuild';
 
 const MOBILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = path.resolve(MOBILE, '..');
@@ -35,6 +36,36 @@ fs.cpSync(path.join(MOBILE, 'web'), WWW, { recursive: true });
 
 // המנוע המשותף — כמו ש-src/renderer/index.html טוען אותו בדסקטופ
 for (const f of ['hebrew.js', 'textedit.js', 'ops.js', 'redact.js']) copy(`src/core/${f}`, `core/${f}`);
+
+// חתימה דיגיטלית: src/core/digisig.js נארז כמו שהוא לקובץ אחד שרץ ב-WebView (window.DigiSig).
+// pdf-lib ו-ops.js לא נארזים שוב — משתמשים באותם עותקים שכבר נטענים בדף (window.PDFLib, window.PdfOps).
+// crypto של Node מוחלף בתחליף מעל node-forge (shims/node-crypto.js), ו-Buffer בחבילת buffer.
+await esbuild.build({
+  stdin: { contents: `window.DigiSig = require(${JSON.stringify(path.join(ROOT, 'src/core/digisig.js'))});`, resolveDir: ROOT, loader: 'js' },
+  bundle: true,
+  format: 'iife',
+  platform: 'browser',
+  target: ['chrome80'],
+  minify: true,
+  legalComments: 'none',
+  inject: [path.join(MOBILE, 'shims/buffer-global.js')],
+  outfile: path.join(WWW, 'core/digisig.bundle.js'),
+  logLevel: 'warning',
+  plugins: [{
+    name: 'eitanpdf-shared',
+    setup(b) {
+      const DIGISIG = path.join(ROOT, 'src/core/digisig.js');
+      b.onResolve({ filter: /^pdf-lib$/ }, () => ({ path: 'pdf-lib', namespace: 'global' }));
+      b.onResolve({ filter: /^\.\/ops\.js$/ }, (a) => (a.importer === DIGISIG ? { path: 'ops', namespace: 'global' } : undefined));
+      b.onResolve({ filter: /^crypto$/ }, (a) => (a.importer === DIGISIG ? { path: path.join(MOBILE, 'shims/node-crypto.js') } : undefined));
+      b.onResolve({ filter: /^buffer$/ }, () => ({ path: path.join(MOBILE, 'node_modules/buffer/index.js') }));
+      b.onLoad({ filter: /.*/, namespace: 'global' }, (a) => ({
+        contents: a.path === 'pdf-lib' ? 'module.exports = window.PDFLib;' : 'module.exports = window.PdfOps;',
+        loader: 'js',
+      }));
+    },
+  }],
+});
 
 // ספריות (מ-node_modules של השורש)
 copy('node_modules/pdf-lib/dist/pdf-lib.min.js', 'vendor/pdf-lib.min.js');

@@ -139,6 +139,17 @@ export class Annotator {
     } else if (it.type === 'redact') {
       pos(el, it, sz);
       el.title = 'השחרה: התוכן מתחת יימחק בשמירה';
+    } else if (it.type === 'digisig') {
+      // תצוגה מקדימה של החתימה הדיגיטלית הגלויה — אותן שורות כמו במנוע (Ops.digiSigLines)
+      pos(el, it, sz);
+      const info = this.hooks.digiInfo ? this.hooks.digiInfo() : {};
+      const lines = window.PdfOps.digiSigLines({ signer: info.signer || 'שם החותם', date: info.date, reason: info.reason, location: info.location });
+      const box = h(`<div class="digisig-box">${it.image ? `<img src="${esc(it.image)}" alt="" draggable="false">` : ''}<div class="digisig-lines"></div></div>`);
+      const ln = box.querySelector('.digisig-lines');
+      for (const l of lines) { const d = document.createElement('div'); d.textContent = l; ln.append(d); }
+      const size = Math.max(4, Math.min(11, (it.h - 10) / (lines.length * 1.25)));
+      box.style.fontSize = `calc(var(--s) * ${size}px)`;
+      el.append(box);
     } else {
       pos(el, { x: it.x, y: it.y, w: it.w }, sz);
       const t = h('<div class="txt" dir="auto"></div>');
@@ -208,7 +219,7 @@ export class Annotator {
         it.w = w;
         it.x = Math.max(0, g.it0.x + w0 - w);
         if (it.type === 'image') it.h = g.it0.h * r;
-        else if (it.type === 'redact') it.h = Math.max(6, Math.min(s.h - it.y, g.it0.h + dy)); // השחרה: רוחב וגובה בנפרד
+        else if (it.type === 'redact' || it.type === 'digisig') it.h = Math.max(it.type === 'digisig' ? 24 : 6, Math.min(s.h - it.y, g.it0.h + dy)); // רוחב וגובה בנפרד
         else it.size = Math.max(4, Math.min(72, g.it0.size * r));
       } else {
         it.x = Math.max(0, Math.min(s.w - it.w, g.it0.x + dx));

@@ -201,3 +201,25 @@ export async function takePhoto() {
   const [img] = await pickImages();
   return img || null;
 }
+
+/** בחירת קובץ מכל סוג (תעודה ‎.pfx/.p12). מחזיר { name, bytes } או null בביטול */
+export async function pickAnyFile(accept = '.pfx,.p12') {
+  if (isNative) {
+    const f = await EitanFiles.pickFile();
+    if (!f || f.cancelled) return null;
+    const res = await fetch(Cap.convertFileSrc(f.path));
+    return { name: f.name, bytes: new Uint8Array(await res.arrayBuffer()) };
+  }
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = accept;
+  input.hidden = true;
+  document.body.append(input);
+  const file = await new Promise((resolve) => {
+    input.addEventListener('change', () => resolve(input.files[0] || null));
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
+  input.remove();
+  return file ? { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) } : null;
+}
