@@ -51,6 +51,21 @@
 
 **מספר הגרסה:** `versionCode` נגזר מהגרסה ב-`package.json` (1.2.1 → 1020100). Play לא מקבל את אותו `versionCode` פעמיים. לכן כל העלאה צריכה גרסה חדשה, או משתנה סביבה `ANDROID_BUILD` (1–99) לבנייה נוספת של אותה גרסה.
 
+## העלאה אוטומטית לבודקים (רשות)
+
+כשמוגדר Secret בשם `EITANPDF_PLAY_SERVICE_ACCOUNT_JSON`, בניית השחרור מעלה את ה-AAB ישר למסלול הבדיקה הסגורה (Alpha), עם "מה חדש" מתוך `mobile/store/whatsnew.txt`. בלי ה-Secret, ההעלאה מדלגת, וה-AAB זמין ב-Artifact להעלאה ידנית.
+
+הגדרה (פעם אחת):
+
+1. **Google Cloud** (console.cloud.google.com): יוצרים פרויקט ← APIs & Services ← Library ← מפעילים את **Google Play Android Developer API**.
+2. IAM & Admin ← **Service Accounts** ← Create service account (למשל `eitanpdf-play-upload`). לא צריך לתת לו תפקידים בפרויקט.
+3. בחשבון השירות: Keys ← Add key ← Create new key ← **JSON**. הקובץ יורד למחשב.
+4. **Play Console** ← משתמשים והרשאות ← הזמנת משתמשים חדשים: מזינים את כתובת המייל של חשבון השירות (נגמרת ב-`iam.gserviceaccount.com`).
+   בהרשאות האפליקציה מוסיפים את איתןPDF ומסמנים רק **שחרור למסלולי בדיקה** (Release to testing tracks). אין צורך בהרשאות חשבון.
+5. **GitHub** ← Secrets: יוצרים `EITANPDF_PLAY_SERVICE_ACCOUNT_JSON` ומדביקים את כל התוכן של קובץ ה-JSON. אחרי זה מוחקים את הקובץ מהמחשב.
+
+לפני כל העלאה צריך גרסה חדשה ב-`package.json`, כי Play לא מקבל את אותו `versionCode` פעמיים.
+
 ## 4. Play Console (פעם אחת)
 
 1. **יצירת האפליקציה:** שם "איתןPDF", שפת ברירת מחדל עברית, חינמית.

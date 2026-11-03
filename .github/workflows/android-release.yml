@@ -9,6 +9,8 @@
 #   EITANPDF_KEYSTORE_PASSWORD     — הסיסמה של קובץ המפתח
 #   EITANPDF_KEY_ALIAS             — שם המפתח בתוך הקובץ (למשל upload)
 #   EITANPDF_KEY_PASSWORD          — הסיסמה של המפתח (לרוב זהה לסיסמת הקובץ)
+#   EITANPDF_PLAY_SERVICE_ACCOUNT_JSON — (רשות) מפתח JSON של חשבון שירות עם הרשאת שחרור למסלולי בדיקה.
+#                                    כשהוא מוגדר, הגרסה מועלית אוטומטית למסלול הבדיקה הסגורה (Alpha) ב-Play.
 # ההוראות המלאות: mobile/RELEASE.md
 name: Android release build
 
@@ -26,6 +28,10 @@ jobs:
     # בדחיפה לענף: רק כשמבקשים במפורש בהודעת הקומיט
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[android-release]')
     runs-on: ubuntu-latest
+    env:
+      # העלאה ל-Play רק כשהוגדר חשבון שירות
+      PLAY_UPLOAD: ${{ secrets.EITANPDF_PLAY_SERVICE_ACCOUNT_JSON != '' }}
+      PLAY_TRACK: alpha        # בדיקה סגורה ("בדיקות בקבוצות מוגדרות - Alpha")
     steps:
       - uses: actions/checkout@v4
 
@@ -111,3 +117,25 @@ jobs:
           path: out/*
           retention-days: 30
           compression-level: 0
+
+      # "מה חדש" לבודקים — מתוך mobile/store/whatsnew.txt (שפת החנות: עברית, iw-IL)
+      - name: Prepare release notes
+        if: env.PLAY_UPLOAD == 'true'
+        run: |
+          mkdir -p whatsnew
+          cp mobile/store/whatsnew.txt whatsnew/whatsnew-iw-IL  # עד 500 תווים
+
+      - name: Upload to Google Play (closed testing)
+        if: env.PLAY_UPLOAD == 'true'
+        uses: r0adkll/upload-google-play@v1.1.3
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.EITANPDF_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: il.co.eitan_m.eitanpdf
+          releaseFiles: out/*.aab
+          track: ${{ env.PLAY_TRACK }}
+          status: completed
+          whatsNewDirectory: whatsnew
+
+      - name: Play upload skipped
+        if: env.PLAY_UPLOAD != 'true'
+        run: echo "::notice::לא הוגדר EITANPDF_PLAY_SERVICE_ACCOUNT_JSON — ה-AAB זמין ב-Artifact להעלאה ידנית (ראו mobile/RELEASE.md)."
