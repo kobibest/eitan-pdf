@@ -1,3 +1,7 @@
 node_modules/
 /dist/
 test/out/
+
+# קבצים מקומיים בלבד
+CLAUDE.md
+.claude/
