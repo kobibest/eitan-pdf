@@ -3,6 +3,8 @@ import { $, toast, busy, prompt, menu, choose, openSheet, closeTopSheet, esc, is
 import { isNative, App, pickPdfs, onReceivedFiles, writeOver, saveAs, saveToFolder, share, readAsset } from './js/native.js';
 import { Viewer } from './js/viewer.js';
 import { PagesEditor } from './js/pages.js';
+import { Annotator } from './js/annotate.js';
+import { drawSignature, savedSignatures, forgetSignature, imageRatio, closeSignaturePad, INK_COLORS } from './js/signature.js';
 import { Doc, loadSource, baseName } from './js/doc.js';
 
 const Ops = window.PdfOps;
@@ -14,6 +16,7 @@ const ICON = {
   save: '<svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></svg>',
   saveAs: '<svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v6M5 3v18h7"/><path d="M8 3v5h7V3M15 15l3 3 3-3M18 18v-7"/></svg>',
   share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/></svg>',
+  add: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M12.5 10.5v7M9 14h7"/></svg>',
   folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6M9 13l3 3 3-3"/></svg>',
 };
 
@@ -30,6 +33,23 @@ const editor = new PagesEditor($('#grid-scroller'), $('#grid'), {
   onSelection: updatePagesToolbar,
   onReorder: (keys) => { if (S.doc.reorder(keys)) { editor.render(); refreshDoc(); } },
 });
+
+const annot = new Annotator(viewer, {
+  onChange: (e) => {
+    refreshDoc();
+    if (e && e.removed) toast('נמחק.', { action: { label: 'ביטול', fn: undo } });
+  },
+  onEditText: (it) => editText(it),
+  onField: (srcId, field) => fillField(srcId, field),
+});
+
+/** פתיחה מחדש של הצפייה (אחרי שינוי בעמודים) עם השכבה של החותמות והשדות */
+async function showDoc(opts) {
+  await viewer.open(S.doc.refs(), opts);
+  await annot.attach(S.doc);
+}
+
+const todayStr = () => new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
 async function fonts() {
   if (!S.fonts) {
@@ -57,6 +77,7 @@ function refreshDoc() {
   $('#doc-sub').textContent = (n === 1 ? 'עמוד אחד' : `${n} עמודים`) + (D.dirty ? ' · לא נשמר' : '');
   $('#viewer').classList.toggle('dirty', D.dirty);
   $('#btn-undo').disabled = !D.history.length;
+  $('#btn-undo-view').hidden = !D.history.length;
 }
 
 /* ---------- פתיחת קבצים ---------- */
@@ -104,7 +125,9 @@ async function openFiles(files) {
   showScreen('viewer');
   refreshDoc();
   busy(true, 'פותח…');
-  try { await viewer.open(D.refs()); } finally { busy(false); }
+  try { await showDoc(); } finally { busy(false); }
+  const nFields = annot.allFields().length;
+  if (nFields) toast(`בקובץ יש ${nFields === 1 ? 'שדה טופס אחד' : `${nFields} שדות טופס`} (מסומנים בכחול). הקישו על שדה כדי למלא.`, { ms: 5000 });
 }
 
 /** הוספת קבצים לסוף המסמך הפתוח (איחוד) */
@@ -119,7 +142,7 @@ async function addFiles(files) {
   const added = S.doc.pages.length - before;
   refreshDoc();
   if (S.screen === 'pages') editor.render();
-  else await viewer.open(S.doc.refs(), { page: before, keepScale: true });
+  else await showDoc({ page: before, keepScale: true });
   toast(added === 1 ? 'נוסף עמוד אחד בסוף המסמך.' : `נוספו ${added} עמודים בסוף המסמך.`, {
     action: { label: 'ביטול', fn: undo },
   });
@@ -141,6 +164,7 @@ function pickFailed(err) {
 }
 
 function closeDoc() {
+  annot.selected = null;
   viewer.close();
   editor.close();
   if (S.doc) S.doc.destroy();
@@ -297,7 +321,7 @@ async function closePages() {
   editor.close();
   showScreen('viewer');
   refreshDoc();
-  await viewer.open(S.doc.refs(), { page, keepScale: true });
+  await showDoc({ page, keepScale: true });
 }
 
 function updatePagesToolbar(count) {
@@ -308,10 +332,20 @@ function updatePagesToolbar(count) {
 }
 
 function undo() {
-  if (!S.doc || !S.doc.undo()) return;
+  if (!S.doc) return;
+  const sig = (D) => D.pages.map((p) => p.key + '/' + p.rotate).join(',');
+  const before = sig(S.doc);
+  if (!S.doc.undo()) return;
   refreshDoc();
   if (S.screen === 'pages') editor.render();
-  else viewer.open(S.doc.refs(), { page: viewer.current, keepScale: true });
+  else if (sig(S.doc) === before) {
+    // רק חותמות / שדות השתנו — אין צורך לצייר את העמודים מחדש
+    annot.selected = null;
+    annot.renderAll();
+  } else {
+    const c = viewer.visibleCenter();
+    showDoc({ page: viewer.current, keepScale: true }).then(() => viewer.centerOn(c.i, c.x, c.y));
+  }
 }
 
 function rotateSelected() {
@@ -427,6 +461,225 @@ async function splitDialog() {
   await deliverFiles(files, files.length === 1 ? 'קובץ אחד מוכן' : `${files.length} קבצים מוכנים`);
 }
 
+/* ---------- חתימה, טקסט ותאריך ---------- */
+
+let stampSeq = 1;
+
+/** הצבת חותמת במרכז המסך (בעמוד שרואים) ובחירתה, כדי שאפשר יהיה לגרור אותה מיד */
+function placeStamp(item) {
+  const c = viewer.visibleCenter();
+  const sz = viewer.sizes[c.i];
+  const hgt = item.h != null ? item.h : item.size * 1.25;
+  item.id = 'm' + Date.now().toString(36) + (stampSeq++);
+  item.x = Math.max(0, Math.min(sz.w - item.w, c.x - item.w / 2));
+  item.y = Math.max(0, Math.min(sz.h - hgt, c.y - hgt / 2));
+  // לא על גבי חותמת קיימת: יורדים מתחתיה (או עולים, אם אין מקום למטה)
+  const key = S.doc.pages[c.i].key;
+  const others = (S.doc.stamps[key] || []).map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h != null ? o.h : o.size * 1.25 * String(o.text || '').split('\n').length }));
+  const blocking = () => others.filter((o) => item.x < o.x + o.w && item.x + item.w > o.x && item.y < o.y + o.h && item.y + hgt > o.y);
+  for (let k = 0; k < 40; k++) {
+    const b = blocking();
+    if (!b.length) break;
+    const below = Math.max(...b.map((o) => o.y + o.h)) + 6;
+    if (below + hgt <= sz.h) item.y = below;
+    else if (item.y > 0) item.y = Math.max(0, Math.min(...b.map((o) => o.y)) - hgt - 6);
+    else break;
+  }
+  S.doc.addStamp(key, item);
+  annot.selected = item.id;
+  annot.renderAll();
+  refreshDoc();
+}
+
+async function signFlow() {
+  if (!S.doc) return;
+  let data = null;
+  const list = await savedSignatures();
+  if (list.length) {
+    data = await new Promise((resolve) => {
+      let done = false;
+      const s = openSheet(`
+        <h2>חתימה</h2>
+        <p>בחרו חתימה שמורה, או חתמו מחדש.</p>
+        <div class="sig-list">${list.map((d, i) => `
+          <div class="sig-opt" role="button" data-i="${i}"><img src="${esc(d)}" alt="חתימה ${i + 1}">
+            <button class="sig-forget" data-forget="${i}" aria-label="מחיקת החתימה מהרשימה"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+          </div>`).join('')}</div>
+        <button class="btn sig-new" data-new>חתימה חדשה</button>`, { onClose: () => { if (!done) resolve(null); } });
+      s.wrap.querySelectorAll('.sig-opt').forEach((el) => el.addEventListener('click', (e) => {
+        if (e.target.closest('[data-forget]')) return;
+        done = true;
+        resolve(list[+el.dataset.i]);
+        s.close();
+      }));
+      s.wrap.querySelectorAll('[data-forget]').forEach((b) => b.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await forgetSignature(list[+b.dataset.forget]);
+        b.closest('.sig-opt').remove();
+        toast('החתימה הוסרה מהרשימה.');
+      }));
+      s.wrap.querySelector('[data-new]').addEventListener('click', () => { done = true; resolve('new'); s.close(); });
+    });
+    if (!data) return;
+  }
+  if (!data || data === 'new') data = await drawSignature();
+  if (!data) return;
+  const ratio = await imageRatio(data);
+  const w = 150;
+  placeStamp({ type: 'image', image: data, w, h: w * ratio });
+  toast('גררו את החתימה למקום. הפינה הלבנה משנה את הגודל.');
+}
+
+/** מדידת רוחב טקסט בגופן Alef — כדי שהתיבה תהיה ברוחב הטקסט ולא תישבר אחרת מאשר בשמירה */
+async function textWidth(text, size, bold) {
+  await document.fonts.load(`${bold ? 700 : 400} ${size}px Alef`);
+  const ctx = (textWidth.c = textWidth.c || document.createElement('canvas')).getContext('2d');
+  ctx.font = `${bold ? 700 : 400} ${size}px Alef`;
+  return Math.max(...String(text).split('\n').map((l) => ctx.measureText(l).width));
+}
+
+async function fitTextBox(item, pageW) {
+  const w = Math.ceil(await textWidth(item.text, item.size, item.bold)) + 4;
+  item.w = Math.max(12, Math.min(pageW, w));
+  // תיבה רחבה מהעמוד — מצמידים לשוליים
+  if (item.x + item.w > pageW) item.x = Math.max(0, pageW - item.w);
+}
+
+const TEXT_SIZES = [{ v: 10, l: 'קטן' }, { v: 14, l: 'רגיל' }, { v: 18, l: 'גדול' }, { v: 26, l: 'כותרת' }];
+
+/** עורך טקסט (חדש או קיים) בגיליון תחתון */
+function textSheet(init) {
+  return new Promise((resolve) => {
+    const st = { size: init.size, color: init.color, bold: !!init.bold };
+    let done = false;
+    const s = openSheet(`
+      <h2>${init.isNew ? 'טקסט חדש' : 'עריכת טקסט'}</h2>
+      <textarea class="field" dir="auto" placeholder="הקלידו כאן"></textarea>
+      <div class="seg" data-sizes>${TEXT_SIZES.map((x) => `<button data-size="${x.v}" aria-pressed="${x.v === st.size}">${x.l}</button>`).join('')}</div>
+      <div class="opts">
+        <div class="inks">${INK_COLORS.map((c) => `<button class="ink" data-c="${c.hex}" aria-label="${c.name}" aria-pressed="${c.hex === st.color}" style="--c:${c.hex}"></button>`).join('')}</div>
+        <span class="spacer" style="flex:1"></span>
+        <button class="chip-bold" data-bold aria-pressed="${st.bold}" aria-label="מודגש">B</button>
+      </div>
+      <div class="actions">
+        <button class="btn" data-ok>${init.isNew ? 'הוספה' : 'אישור'}</button>
+        <button class="btn quiet" data-cancel>ביטול</button>
+      </div>`, { onClose: () => { if (!done) resolve(null); } });
+    const w = s.wrap;
+    const ta = w.querySelector('textarea');
+    ta.value = init.text || '';
+    if (!TEXT_SIZES.some((x) => x.v === st.size)) w.querySelector('[data-sizes]').hidden = true;
+    w.querySelectorAll('[data-size]').forEach((b) => b.addEventListener('click', () => {
+      st.size = +b.dataset.size;
+      w.querySelectorAll('[data-size]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+    w.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => {
+      st.color = b.dataset.c;
+      w.querySelectorAll('[data-c]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+    const bold = w.querySelector('[data-bold]');
+    bold.addEventListener('click', () => { st.bold = !st.bold; bold.setAttribute('aria-pressed', String(st.bold)); });
+    w.querySelector('[data-ok]').addEventListener('click', () => {
+      done = true;
+      resolve({ text: ta.value.replace(/\s+$/, ''), size: st.size, color: st.color, bold: st.bold });
+      s.close();
+    });
+    w.querySelector('[data-cancel]').addEventListener('click', () => s.close());
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 80);
+  });
+}
+
+async function addText() {
+  if (!S.doc) return;
+  const r = await textSheet({ isNew: true, text: '', size: 14, color: INK_COLORS[0].hex, bold: false });
+  if (!r || !r.text.trim()) return;
+  const item = { type: 'text', align: 'right', ...r, x: 0, w: 0 };
+  item.w = Math.ceil(await textWidth(item.text, item.size, item.bold)) + 4;
+  item.w = Math.min(item.w, viewer.sizes[viewer.visibleCenter().i].w);
+  placeStamp(item);
+}
+
+async function addDate() {
+  if (!S.doc) return;
+  const item = { type: 'text', align: 'right', text: todayStr(), size: 14, color: INK_COLORS[0].hex, bold: false };
+  item.w = Math.ceil(await textWidth(item.text, item.size, false)) + 4;
+  placeStamp(item);
+  toast('גררו את התאריך למקום. הקשה עליו פותחת עריכה.');
+}
+
+async function editText(it) {
+  const r = await textSheet({ ...it, isNew: false });
+  if (!r) return;
+  if (!r.text.trim()) { annot.remove(it.id); return; }
+  const f = S.doc.findStamp(it.id);
+  if (!f) return;
+  const i = S.doc.pages.findIndex((p) => p.key === f.key);
+  const patch = { ...r };
+  const tmp = { ...it, ...patch };
+  await fitTextBox(tmp, viewer.sizes[i].w);
+  S.doc.updateStamp(it.id, { ...patch, w: tmp.w, x: tmp.x });
+  annot.renderAll();
+  refreshDoc();
+}
+
+/* ---------- טפסים ---------- */
+
+/** מילוי שדה: תיבת סימון מתהפכת מיד; שאר השדות בגיליון עם "הבא" */
+async function fillField(srcId, field) {
+  const D = S.doc;
+  if (field.type === 'CheckBox') {
+    D.setFieldValue(srcId, field.name, !D.fieldValue(srcId, field));
+    annot.renderAll();
+    refreshDoc();
+    return;
+  }
+  const all = annot.allFields().filter((f) => f.field.type !== 'CheckBox');
+  const idx = all.findIndex((f) => f.srcId === srcId && f.field.name === field.name);
+  const cur = all[idx];
+  if (cur) viewer.centerOn(cur.page, cur.box.x + cur.box.w / 2, cur.box.y + cur.box.h / 2 + 60 / viewer.scale);
+  const value = D.fieldValue(srcId, field);
+  const hasNext = idx >= 0 && idx < all.length - 1;
+  const res = await new Promise((resolve) => {
+    let done = false;
+    const choice = field.type !== 'TextField';
+    const s = openSheet(`
+      <h2 dir="auto"></h2>
+      <p class="field-meta">שדה ${idx + 1} מתוך ${all.length}</p>
+      ${choice
+        ? `<div class="opt-list">${(field.options || []).map((o) => `<button data-o="${esc(o)}" aria-pressed="${o === value}" dir="auto">${esc(o)}</button>`).join('')}</div>`
+        : field.multiline
+          ? '<textarea class="field" dir="auto"></textarea>'
+          : `<input class="field" dir="auto" autocomplete="off" ${field.maxLength ? `maxlength="${field.maxLength}"` : ''}>`}
+      <div class="actions">
+        ${hasNext ? '<button class="btn" data-next>הבא</button>' : ''}
+        <button class="btn ${hasNext ? 'quiet' : ''}" data-done>סיום</button>
+      </div>`, { onClose: () => { if (!done) resolve({ action: 'close' }); } });
+    const w = s.wrap;
+    w.querySelector('h2').textContent = field.name;
+    let picked = value;
+    const input = w.querySelector('.field');
+    if (input) { input.value = value == null ? '' : String(value); setTimeout(() => input.focus(), 80); }
+    w.querySelectorAll('[data-o]').forEach((b) => b.addEventListener('click', () => {
+      picked = b.dataset.o;
+      w.querySelectorAll('[data-o]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    }));
+    const finish = (action) => { done = true; resolve({ action, value: input ? input.value : picked }); s.close(); };
+    if (input && !field.multiline) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(hasNext ? 'next' : 'done'); } });
+    const nx = w.querySelector('[data-next]');
+    if (nx) nx.addEventListener('click', () => finish('next'));
+    w.querySelector('[data-done]').addEventListener('click', () => finish('done'));
+  });
+  if (res.action !== 'close' && res.value !== (value == null ? '' : value) && !(res.value === '' && value == null)) {
+    D.setFieldValue(srcId, field.name, res.value);
+    annot.renderAll();
+    refreshDoc();
+  }
+  if (res.action === 'next' && hasNext) {
+    const n = all[idx + 1];
+    fillField(n.srcId, n.field);
+  }
+}
+
 /* ---------- מספר עמוד ---------- */
 
 let pillTimer = 0;
@@ -467,18 +720,24 @@ $('#btn-menu').addEventListener('click', async () => {
   const choice = await menu([
     { id: 'open', label: 'פתיחת קובץ אחר', icon: ICON.open },
     { id: 'goto', label: 'מעבר לעמוד', icon: ICON.page },
+    { id: 'add', label: 'הוספת קובץ לסוף המסמך', icon: ICON.add },
     { id: 'saveas', label: 'שמירה בשם…', icon: ICON.saveAs },
+    { id: 'share', label: 'שיתוף', icon: ICON.share },
     { id: 'about', label: 'אודות', icon: ICON.info },
   ]);
   if (choice === 'open') chooseAndOpen();
   else if (choice === 'goto') goToPagePrompt();
   else if (choice === 'saveas') saveAsNew();
+  else if (choice === 'add') pickAndAdd();
+  else if (choice === 'share') shareDoc();
   else if (choice === 'about') about();
 });
 
 $('#tb-pages').addEventListener('click', openPages);
-$('#tb-add').addEventListener('click', pickAndAdd);
-$('#tb-share').addEventListener('click', shareDoc);
+$('#tb-sign').addEventListener('click', signFlow);
+$('#tb-text').addEventListener('click', addText);
+$('#tb-date').addEventListener('click', addDate);
+$('#btn-undo-view').addEventListener('click', undo);
 $('#tb-save').addEventListener('click', saveMenu);
 
 $('#btn-pages-done').addEventListener('click', closePages);
@@ -520,7 +779,9 @@ onReceivedFiles(
 // כפתור "חזרה" של אנדרואיד
 if (isNative) {
   App.addListener('backButton', () => {
+    if (closeSignaturePad()) return;
     if (closeTopSheet()) return;
+    if (S.screen === 'viewer' && annot.selected) { annot.select(null); return; }
     if (S.screen === 'pages') {
       if (editor.selected.size) editor.selectAll(false); else closePages();
       return;

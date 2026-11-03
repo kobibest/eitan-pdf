@@ -332,3 +332,114 @@ svg { flex: none; }
 .menu-list small { color: var(--ink-3); font-size: 13px; }
 .toast { display: flex; align-items: center; gap: 14px; pointer-events: auto; }
 .toast-action { color: var(--gold); font-weight: 700; padding: 4px 2px; min-height: 36px; }
+
+@font-face { font-family: 'Alef'; src: url('fonts/Alef-Regular.ttf'); font-weight: 400; }
+@font-face { font-family: 'Alef'; src: url('fonts/Alef-Bold.ttf'); font-weight: 700; }
+
+/* ===== שכבת חותמות ושדות מעל העמוד ===== */
+.page .overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.overlay > * { pointer-events: auto; position: absolute; }
+
+.field {
+  background: rgba(30, 79, 214, .10);
+  border-bottom: 2px solid rgba(30, 79, 214, .55);
+  border-radius: 2px;
+  display: flex; align-items: center; overflow: hidden;
+}
+.field.changed { background: rgba(255, 255, 255, .92); }
+.field .fv {
+  font-family: 'Alef', sans-serif; line-height: 1; color: #000;
+  width: 100%; padding: 0 calc(var(--s) * 2px);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: start;
+}
+.field.type-CheckBox { justify-content: center; border: 2px solid rgba(30, 79, 214, .55); }
+.field.type-CheckBox svg { width: 90%; height: 90%; fill: none; stroke: #000; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+
+.item { touch-action: none; }
+.item img { display: block; width: 100%; height: 100%; pointer-events: none; -webkit-user-drag: none; }
+.item .txt {
+  font-family: 'Alef', sans-serif; line-height: 1.25;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.item.selected { outline: 2px dashed var(--ink-blue); outline-offset: 3px; z-index: 1; }
+.item-del, .item-edit, .item-grip {
+  position: absolute; width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .3);
+}
+.item-del { top: -32px; right: -32px; background: var(--stamp); color: #fff; }
+.item-edit { top: -32px; left: -32px; background: var(--ink-blue); color: #fff; }
+.item-del svg, .item-edit svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.item-grip { bottom: -32px; left: -32px; background: #fff; border: 3px solid var(--ink-blue); }
+/* אזור מגע גדול יותר מהעיגול */
+.item-del::after, .item-edit::after, .item-grip::after { content: ''; position: absolute; inset: -9px; }
+
+/* ===== משטח חתימה ===== */
+.sigpad {
+  position: fixed; inset: 0; z-index: 45; background: var(--panel);
+  display: flex; flex-direction: column;
+  padding: 0 var(--sa-right) 0 var(--sa-left);
+}
+.sigpad-bar {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--navy); color: #fff;
+  padding: var(--sa-top) 8px 0; min-height: calc(var(--sa-top) + 56px);
+  margin: 0 calc(-1 * var(--sa-right)) 0 calc(-1 * var(--sa-left));
+}
+.sigpad-bar h2 { flex: 1; margin: 0; font-size: 17px; font-weight: 600; }
+.sigpad-ok { background: var(--gold); color: var(--navy-deep); font-weight: 700; border-radius: 10px; min-height: 40px; padding: 0 18px; }
+.sigpad-area {
+  flex: 1; position: relative; margin: 14px; border-radius: 14px;
+  background: #fff; box-shadow: var(--shadow-paper); overflow: hidden;
+}
+.sigpad-area canvas { position: absolute; inset: 0; touch-action: none; }
+.sigpad-line {
+  position: absolute; left: 8%; right: 8%; bottom: 28%;
+  border-bottom: 2px dashed var(--line); pointer-events: none;
+}
+.sigpad-line span { position: absolute; right: 0; top: 6px; color: var(--ink-3); font-size: 14px; }
+.sigpad.signed .sigpad-line span { display: none; }
+.sigpad-tools {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 0 16px calc(var(--sa-bottom) + 12px);
+}
+.inks { display: flex; gap: 10px; }
+.ink {
+  width: 34px; height: 34px; border-radius: 50%; background: var(--c);
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3px var(--line);
+}
+.ink[aria-pressed="true"] { box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--c); }
+.remember { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-2); flex: 1; min-height: 44px; }
+.remember input { width: 20px; height: 20px; accent-color: var(--ink-blue); }
+
+/* בחירת חתימה שמורה */
+.sig-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 4px 0 14px; }
+.sig-opt {
+  position: relative; height: 84px; border-radius: 12px;
+  border: 1.5px solid var(--line); background: #fff;
+  display: grid; place-items: center; padding: 8px;
+}
+.sig-opt img { max-width: 100%; max-height: 100%; }
+.sig-opt:active { border-color: var(--ink-blue); background: var(--ink-blue-wash); }
+.sig-forget {
+  position: absolute; top: -8px; left: -8px; width: 28px; height: 28px; border-radius: 50%;
+  background: #fff; border: 1.5px solid var(--line); color: var(--ink-3);
+  display: grid; place-items: center;
+}
+.sig-forget svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; }
+.sig-new { width: 100%; }
+
+/* עורך טקסט */
+.sheet textarea.field { min-height: 88px; padding: 10px 14px; resize: none; font-family: 'Alef', sans-serif; line-height: 1.35; }
+.opts { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; flex-wrap: wrap; }
+.opts .seg { margin: 0; flex: 1; }
+.chip-bold { min-width: 44px; min-height: 44px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--panel); font-weight: 800; }
+.chip-bold[aria-pressed="true"] { border-color: var(--ink-blue); background: var(--ink-blue-wash); color: var(--ink-blue); }
+.field-meta { font-size: 13px; color: var(--ink-3); margin: -4px 0 10px; }
+.opt-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.opt-list button {
+  min-height: 48px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--panel);
+  text-align: start; padding: 0 16px; font-size: 16px;
+}
+.opt-list button[aria-pressed="true"] { border-color: var(--ink-blue); background: var(--ink-blue-wash); color: var(--ink-blue); font-weight: 700; }
+.sheet .actions .spacer { flex: 1; }

@@ -49,12 +49,15 @@ export class Viewer {
     this.refs = refs;
     this.pdf = refs.length ? refs[0].pdf : null;
     const sizes = [];
+    const viewports = [];
     for (const r of refs) {
       const pg = await r.pdf.getPage(r.index + 1);
       if (gen !== this.gen) return;
       const vp = pg.getViewport({ scale: 1, rotation: (pg.rotate + r.rotate) % 360 });
       sizes.push({ w: vp.width, h: vp.height });
+      viewports.push(vp);
     }
+    this.viewports = viewports;
     this.sizes = sizes;
     this.maxW = Math.max(...sizes.map((s) => s.w));
     this.fitScale = this.computeFit();
@@ -64,7 +67,7 @@ export class Viewer {
       const el = document.createElement('div');
       el.className = 'page';
       el.dataset.i = i;
-      el.innerHTML = `<div class="page-no">${i + 1}</div>`;
+      el.innerHTML = `<div class="page-no">${i + 1}</div><div class="overlay"></div>`;
       this.pagesEl.append(el);
       this.io.observe(el);
       return el;
@@ -103,6 +106,8 @@ export class Viewer {
 
   layout() {
     const s = this.scale;
+    // חותמות ושדות מעל העמוד מחושבים ב-CSS לפי המשתנה הזה
+    this.pagesEl.style.setProperty('--s', s);
     const contentW = Math.ceil(this.maxW * s + SIDE * 2);
     this.pagesEl.style.width = Math.max(this.scroller.clientWidth, contentW) + 'px';
     this.sizes.forEach((sz, i) => {
@@ -117,6 +122,28 @@ export class Viewer {
   goTo(i) {
     const el = this.els[Math.max(0, Math.min(this.els.length - 1, i))];
     if (el) this.scroller.scrollTop = el.offsetTop - GAP;
+  }
+
+  /** הנקודה שבמרכז המסך, ביחידות PDF של העמוד: { i, x, y } */
+  visibleCenter() {
+    const sc = this.scroller;
+    const cx = sc.scrollLeft + sc.clientWidth / 2;
+    const cy = sc.scrollTop + sc.clientHeight / 2;
+    const i = this.pageAtY(cy);
+    const el = this.els[i];
+    const sz = this.sizes[i];
+    const x = Math.min(sz.w, Math.max(0, (cx - el.offsetLeft) / this.scale));
+    const y = Math.min(sz.h, Math.max(0, (cy - el.offsetTop) / this.scale));
+    return { i, x, y };
+  }
+
+  /** גלילה כך שהנקודה (ביחידות PDF של עמוד i) תהיה במרכז המסך */
+  centerOn(i, x, y) {
+    const el = this.els[i];
+    if (!el) return;
+    const sc = this.scroller;
+    sc.scrollLeft = el.offsetLeft + x * this.scale - sc.clientWidth / 2;
+    sc.scrollTop = el.offsetTop + y * this.scale - sc.clientHeight / 2;
   }
 
   /* ---------- זום ---------- */

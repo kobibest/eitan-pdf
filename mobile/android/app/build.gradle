@@ -1,5 +1,16 @@
 apply plugin: 'com.android.application'
 
+def appVersion() {
+    new groovy.json.JsonSlurper().parse(file('../../../package.json')).version
+}
+
+def appVersionCode() {
+    def (maj, min, pat) = appVersion().tokenize('.-')[0..2].collect { it.toInteger() }
+    def build = (System.getenv('ANDROID_BUILD') ?: '0').toInteger()
+    if (build < 0 || build > 99 || min > 99 || pat > 99) throw new GradleException('versionCode: מספר גרסה מחוץ לטווח')
+    return maj * 1000000 + min * 10000 + pat * 100 + build
+}
+
 android {
     namespace = "il.co.eitan_m.eitanpdf"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,9 +18,11 @@ android {
         applicationId "il.co.eitan_m.eitanpdf"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // הגרסה נלקחת מ-package.json של השורש (אותה גרסה כמו ב-Windows); מספר הבנייה מ-Actions
-        versionCode((System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger())
-        versionName new groovy.json.JsonSlurper().parse(file('../../../package.json')).version
+        // הגרסה נלקחת מ-package.json של השורש (אותה גרסה כמו ב-Windows).
+        // versionCode נגזר ממנה: 1.2.1 → 1020100. חנות Play דורשת שהוא יעלה בכל העלאה,
+        // ולכן כל גרסה לחנות צריכה מספר גרסה חדש (או ANDROID_BUILD 1–99 לבנייה נוספת של אותה גרסה)
+        versionCode appVersionCode()
+        versionName appVersion()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -17,8 +30,21 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // חתימת שחרור: רק כשהמפתח מוגדר במשתני סביבה (GitHub Secrets). שום מפתח או סיסמה לא נשמרים בריפו.
+    signingConfigs {
+        release {
+            def ks = System.getenv('EITANPDF_KEYSTORE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('EITANPDF_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('EITANPDF_KEY_ALIAS')
+                keyPassword System.getenv('EITANPDF_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (System.getenv('EITANPDF_KEYSTORE')) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

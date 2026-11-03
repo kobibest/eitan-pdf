@@ -79,6 +79,8 @@ export class Doc {
     this.security = first.security;
     this.dirty = false;
     this.history = [];
+    this.stamps = {};      // pageKey -> [{ id, type: 'text'|'image', x, y, w, h, ... }] — כמו בדסקטופ
+    this.formValues = {};  // srcId -> { fieldName: value }
     this.addSource(first, { initial: true });
   }
 
@@ -92,7 +94,12 @@ export class Doc {
   /* ---------- היסטוריה (ביטול) ---------- */
 
   snapshot() {
-    this.history.push({ pages: this.pages.map((p) => ({ ...p })), dirty: this.dirty });
+    this.history.push({
+      pages: this.pages.map((p) => ({ ...p })),
+      stamps: JSON.parse(JSON.stringify(this.stamps)),
+      formValues: JSON.parse(JSON.stringify(this.formValues)),
+      dirty: this.dirty,
+    });
     if (this.history.length > 30) this.history.shift();
   }
 
@@ -100,8 +107,70 @@ export class Doc {
     const h = this.history.pop();
     if (!h) return false;
     this.pages = h.pages;
+    this.stamps = h.stamps;
+    this.formValues = h.formValues;
     this.dirty = h.dirty;
     return true;
+  }
+
+  /* ---------- חותמות (חתימה / טקסט / תאריך) ---------- */
+
+  addStamp(pageKey, item) {
+    this.snapshot();
+    (this.stamps[pageKey] = this.stamps[pageKey] || []).push(item);
+    this.dirty = true;
+  }
+
+  findStamp(id) {
+    for (const [key, list] of Object.entries(this.stamps)) {
+      const it = list.find((x) => x.id === id);
+      if (it) return { key, item: it };
+    }
+    return null;
+  }
+
+  /** שינוי חותמת. withHistory=false — לשינויים רציפים (גרירה) שכבר נשמרה לפניהם היסטוריה */
+  updateStamp(id, patch, { withHistory = true } = {}) {
+    const f = this.findStamp(id);
+    if (!f) return;
+    if (withHistory) this.snapshot();
+    Object.assign(f.item, patch);
+    this.dirty = true;
+  }
+
+  removeStamp(id) {
+    const f = this.findStamp(id);
+    if (!f) return;
+    this.snapshot();
+    this.stamps[f.key] = this.stamps[f.key].filter((x) => x.id !== id);
+    this.dirty = true;
+  }
+
+  /* ---------- טפסים ---------- */
+
+  /** שדות הטופס שאפשר למלא במקור (נטען פעם אחת) */
+  async fields(srcId) {
+    const src = this.sources.get(srcId);
+    if (!src.fields) {
+      try {
+        src.fields = (await Ops.getFormFields(src.bytes))
+          .filter((f) => !f.readOnly && f.page >= 0 && f.rect && ['TextField', 'CheckBox', 'RadioGroup', 'Dropdown', 'OptionList'].includes(f.type));
+      } catch {
+        src.fields = [];
+      }
+    }
+    return src.fields;
+  }
+
+  fieldValue(srcId, field) {
+    const v = this.formValues[srcId];
+    return v && field.name in v ? v[field.name] : field.value;
+  }
+
+  setFieldValue(srcId, name, value) {
+    this.snapshot();
+    (this.formValues[srcId] = this.formValues[srcId] || {})[name] = value;
+    this.dirty = true;
   }
 
   /* ---------- פעולות על עמודים ---------- */
@@ -142,7 +211,7 @@ export class Doc {
   async build(fonts, { pages = this.pages, protect = true } = {}) {
     const sources = {};
     for (const s of this.sources.values()) sources[s.id] = s.bytes;
-    const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), {}, {}, { fonts });
+    const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), this.stamps, this.formValues, { fonts });
     return protect ? this.protect(out) : out;
   }
 
