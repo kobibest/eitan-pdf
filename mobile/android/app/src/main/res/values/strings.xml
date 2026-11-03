@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">איתןPDF</string>
+    <string name="title_activity_main">איתןPDF</string>
+    <string name="package_name">il.co.eitan_m.eitanpdf</string>
+    <string name="custom_url_scheme">il.co.eitan_m.eitanpdf</string>
+</resources>

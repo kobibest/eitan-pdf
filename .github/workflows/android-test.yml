@@ -1,0 +1,57 @@
+# אפליקציית אנדרואיד — גרסת בדיקה: כל דחיפה לענף test בונה APK של debug, בלי לפרסם אותו.
+# ההורדה: לשונית Actions ← "Android test build" ← הריצה האחרונה ← Artifacts ← EitanPDF-Android-test
+# APK של debug בלבד: Gradle יוצר מפתח debug זמני על השרת. שום מפתח לא נשמר בריפו.
+name: Android test build
+
+on:
+  push:
+    branches: [test]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      # המנוע המשותף (src/core) — אותן בדיקות כמו בגרסת Windows
+      - name: Engine tests
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+        run: |
+          npm ci
+          npm test
+
+      - name: Build APK
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run build:web
+          npx cap sync android
+          cd android
+          ./gradlew assembleDebug --no-daemon --stacktrace
+          VERSION=$(node -p "require('../../package.json').version")
+          SHORT=$(git rev-parse --short HEAD)
+          mkdir -p ../../out
+          cp app/build/outputs/apk/debug/app-debug.apk "../../out/EitanPDF-Android-$VERSION-test-$SHORT.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EitanPDF-Android-test
+          path: out/*.apk
+          retention-days: 14
+          compression-level: 0

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' data: blob: http://localhost https://localhost">
+  <meta name="theme-color" content="#0B2A82">
+  <title>איתןPDF</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- מסך הבית -->
+  <section class="screen home" id="home">
+    <div class="home-hero">
+      <img class="home-logo" src="img/logo.png" alt="">
+      <h1 class="home-name">איתן<span>PDF</span></h1>
+      <p class="home-tag">עבודה עם PDF בעברית. חינמי, ושום קובץ לא יוצא מהטלפון.</p>
+    </div>
+    <div class="home-body">
+      <button class="btn-gold btn-big" id="btn-open">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        פתיחת קובץ PDF
+      </button>
+      <p class="home-hint">אפשר גם לפתוח קובץ ישר מוואטסאפ, מג׳ימייל או מאפליקציית הקבצים: בוחרים <b>פתח באמצעות</b> או <b>שתף</b>, ואז <b>איתןPDF</b>.</p>
+    </div>
+    <footer class="home-foot">
+      <button class="link" id="btn-about">אודות</button>
+    </footer>
+  </section>
+
+  <!-- צפייה -->
+  <section class="screen viewer" id="viewer" hidden>
+    <header class="appbar">
+      <button class="icon-btn" id="btn-close" aria-label="סגירת הקובץ">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+      <div class="appbar-title">
+        <div class="doc-name" id="doc-name"></div>
+        <div class="doc-sub" id="doc-sub"></div>
+      </div>
+      <button class="icon-btn" id="btn-menu" aria-label="עוד">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+      </button>
+    </header>
+    <div class="scroller" id="scroller">
+      <div class="pages" id="pages"></div>
+    </div>
+    <button class="page-pill" id="page-pill" aria-label="מעבר לעמוד"></button>
+  </section>
+
+  <div class="busy" id="busy" hidden><div class="spinner"></div><p id="busy-text">פותח…</p></div>
+  <div class="sheet-root" id="sheet-root"></div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="build-info.js"></script>
+  <script src="vendor/capacitor.js"></script>
+  <script src="vendor/pdf-lib.min.js"></script>
+  <script src="vendor/fontkit.umd.min.js"></script>
+  <script src="vendor/bidi.min.js"></script>
+  <!-- המנוע המשותף עם גרסת Windows (src/core) -->
+  <script src="core/hebrew.js"></script>
+  <script src="core/textedit.js"></script>
+  <script src="core/ops.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

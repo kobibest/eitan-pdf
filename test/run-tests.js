@@ -461,5 +461,12 @@ async function makeForm() {
     assert.deepStrictEqual(await DS.verify(a), []);
   });
 
+  await ok('המנוע נטען במצב דפדפן (כמו ב-WebView של אנדרואיד) וכותב עברית', async () => {
+    const out = await require('./browser-globals.js').run(fonts);
+    fs.writeFileSync(path.join(OUT, 'browser-globals.pdf'), out);
+    const d = await PDFDocument.load(out);
+    assert.strictEqual(d.getPageCount(), 1);
+  });
+
   console.log(`\n${passed} בדיקות עברו. קבצי פלט: ${OUT}`);
 })().catch((e) => { console.error('✗', e); process.exit(1); });
