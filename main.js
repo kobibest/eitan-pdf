@@ -19,6 +19,8 @@ app.setAppUserModelId('il.co.eitan-m.eitanpdf');
   app.setPath('userData', target);
 })();
 const integration = require('./src/main/win-integration.js');
+const winCerts = require('./src/main/win-certs.js');
+const digisig = require('./src/core/digisig.js');
 
 let win;
 let rendererReady = false;
@@ -221,6 +223,54 @@ ipcMain.handle('read-asset', async (_e, rel) => {
   const safe = path.normalize(rel).replace(/^(\.\.[/\\])+/, '');
   return new Uint8Array(await fs.readFile(path.join(__dirname, 'assets', safe)));
 });
+
+/* ---------- חתימה דיגיטלית ---------- */
+const PFX_FILTER = [{ name: 'קובצי תעודה', extensions: ['pfx', 'p12'] }];
+const certsDir = () => path.join(app.getPath('userData'), 'certs');
+
+/** מקור תעודה: { kind: 'store', thumb } | { kind: 'file', path, password } */
+async function signerFor(source) {
+  if (!source) throw new Error('לא נבחרה תעודה');
+  if (source.kind === 'store') return new winCerts.WindowsStoreSigner(source.thumb);
+  if (source.kind === 'file') return digisig.p12Signer(await fs.readFile(source.path), source.password);
+  throw new Error('מקור תעודה לא מוכר');
+}
+
+ipcMain.handle('certs-supported', () => winCerts.isSupported());
+ipcMain.handle('certs-list', () => winCerts.list());
+ipcMain.handle('pick-pfx', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'בחירת קובץ תעודה', properties: ['openFile'], filters: PFX_FILTER });
+  return r.canceled ? null : r.filePaths[0];
+});
+ipcMain.handle('cert-info', async (_e, source) => {
+  if (source.kind !== 'file') throw new Error('מקור תעודה לא מוכר');
+  return digisig.p12Info(await fs.readFile(source.path), source.password);
+});
+ipcMain.handle('cert-create', async (_e, { name, email, password }) => {
+  const p12 = digisig.createSelfSigned({ name, email, password });
+  await fs.mkdir(certsDir(), { recursive: true });
+  const safe = String(name).trim().replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'cert';
+  let target = path.join(certsDir(), `${safe}.p12`);
+  for (let n = 2; await exists(target); n++) target = path.join(certsDir(), `${safe} (${n}).p12`);
+  await fs.writeFile(target, Buffer.from(p12));
+  return { kind: 'file', path: target };
+});
+ipcMain.handle('digital-sign', async (_e, { bytes, source, pageIndex, rect, name, reason, location, appearance }) => {
+  const signer = await signerFor(source);
+  const signingTime = new Date();
+  let ap = null;
+  if (appearance && rect) {
+    const fontsDir = path.join(__dirname, 'assets', 'fonts');
+    const date = signingTime.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      + ' ' + signingTime.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+    ap = {
+      ...appearance, date, reason, location,
+      fonts: { regular: await fs.readFile(path.join(fontsDir, 'Alef-Regular.ttf')), bold: await fs.readFile(path.join(fontsDir, 'Alef-Bold.ttf')) },
+    };
+  }
+  return digisig.signPdf(new Uint8Array(bytes), signer, { pageIndex, rect: ap ? rect : null, name, reason, location, signingTime, appearance: ap });
+});
+ipcMain.handle('verify-signatures', (_e, bytes) => digisig.verify(new Uint8Array(bytes)));
 
 ipcMain.handle('show-in-folder', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('open-path', (_e, p) => shell.openPath(p));
