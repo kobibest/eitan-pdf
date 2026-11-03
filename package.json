@@ -7,7 +7,8 @@
     "start": "electron .",
     "test": "node test/run-tests.js",
     "dist": "installer/build.sh x64",
-    "dist:arm64": "installer/build.sh arm64"
+    "dist:arm64": "installer/build.sh arm64",
+    "dist:mac": "installer/build-mac.sh"
   },
   "author": "Kobi Eitan <kobi@eitan-m.co.il>",
   "license": "MIT",
@@ -57,26 +58,54 @@
         }
       ],
       "icon": "build/icon.ico",
-      "executableName": "EitanPDF"
+      "executableName": "EitanPDF",
+      "extraResources": [
+        {
+          "from": "native/thumbs/dist",
+          "to": "native/thumbs",
+          "filter": [
+            "*.dll",
+            "LICENSE*"
+          ]
+        },
+        {
+          "from": "native/thumbs/dist-arm64",
+          "to": "native/thumbs-arm64",
+          "filter": [
+            "*.dll",
+            "LICENSE*"
+          ]
+        }
+      ]
     },
-    "extraResources": [
-      {
-        "from": "native/thumbs/dist",
-        "to": "native/thumbs",
-        "filter": [
-          "*.dll",
-          "LICENSE*"
-        ]
-      },
-      {
-        "from": "native/thumbs/dist-arm64",
-        "to": "native/thumbs-arm64",
-        "filter": [
-          "*.dll",
-          "LICENSE*"
-        ]
-      }
-    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "artifactName": "EitanPDF-${version}-mac.${ext}",
+      "icon": "build/logo-full.png",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "fileAssociations": [
+        {
+          "ext": "pdf",
+          "name": "PDF",
+          "role": "Viewer",
+          "rank": "Alternate"
+        }
+      ]
+    },
+    "dmg": {
+      "title": "EitanPDF ${version}",
+      "writeUpdateInfo": false
+    },
     "electronLanguages": [
       "he",
       "en-US"

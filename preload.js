@@ -2,6 +2,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  platform: process.platform,
   openPdfs: () => ipcRenderer.invoke('open-pdfs'),
   openImages: () => ipcRenderer.invoke('open-images'),
   readFile: (p) => ipcRenderer.invoke('read-file', p),

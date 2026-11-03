@@ -1,5 +1,5 @@
 # גרסת בדיקה: כל דחיפה לענף שאינו main בונה תוכנת התקנה — בלי לפרסם אותה.
-# ההורדה: לשונית Actions ← הריצה האחרונה ← Artifacts ← EitanPDF-test
+# ההורדה: לשונית Actions ← הריצה האחרונה ← Artifacts ← EitanPDF-test (Windows) / EitanPDF-test-mac (macOS)
 name: Test build
 
 on:
@@ -33,5 +33,32 @@ jobs:
         with:
           name: EitanPDF-test
           path: out/*.exe
+          retention-days: 14
+          compression-level: 0
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build test dmg
+        run: |
+          npm ci
+          npm test
+          installer/build-mac.sh
+          VERSION=$(node -p "require('./package.json').version")
+          SHORT=$(git rev-parse --short HEAD)
+          mkdir -p out
+          cp "dist/EitanPDF-$VERSION-mac.dmg" "out/EitanPDF-$VERSION-test-$SHORT-mac.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EitanPDF-test-mac
+          path: out/*.dmg
           retention-days: 14
           compression-level: 0

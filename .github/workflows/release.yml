@@ -1,6 +1,7 @@
 # בונה את תוכנת ההתקנה ומפרסם אותה ב-Releases בכל פעם שמספר הגרסה ב-package.json משתנה.
-# הקישור הקבוע להורדה של הגרסה האחרונה:
+# הקישורים הקבועים להורדה של הגרסה האחרונה:
 #   https://github.com/kobibest/eitan-pdf/releases/latest/download/EitanPDF-Setup-x64.exe
+#   https://github.com/kobibest/eitan-pdf/releases/latest/download/EitanPDF-mac.dmg
 name: Release
 
 on:
@@ -15,6 +16,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      exists: ${{ steps.v.outputs.exists }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,3 +60,38 @@ jobs:
           files: |
             dist/EitanPDF-Setup-x64.exe
             dist/EitanPDF-Setup-${{ steps.v.outputs.version }}-x64.exe
+
+  # גרסת macOS — נבנית על מחשב Mac של GitHub ומתווספת לאותו Release.
+  # חתימה ואישור של Apple מופעלים רק אם הוגדרו הסודות (ראו installer/build-mac.sh).
+  build-mac:
+    needs: build
+    if: needs.build.outputs.exists == 'false'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build dmg
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          npm ci
+          npm test
+          installer/build-mac.sh
+          cp "dist/EitanPDF-${{ needs.build.outputs.version }}-mac.dmg" dist/EitanPDF-mac.dmg
+
+      - name: Add to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          files: |
+            dist/EitanPDF-mac.dmg
+            dist/EitanPDF-${{ needs.build.outputs.version }}-mac.dmg
