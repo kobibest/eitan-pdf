@@ -7,10 +7,11 @@ const CONFIG = {
   // שתי רשימות בריסנד: הרשומים הפעילים, ומי שביקש להסיר (נשמרים לתיעוד ההסרה).
   segmentActive: process.env.SEGMENT_ACTIVE_ID || '89bc6b94-d44c-4fd5-991e-d447e9dee9ec',
   segmentRemoved: process.env.SEGMENT_REMOVED_ID || '6a5070e6-6140-4033-9f6f-9d64c9bd5980',
-  from: process.env.MAIL_FROM || 'איתןPDF <updates@m-eitan.co.il>',
+  from: process.env.MAIL_FROM || 'איתןPDF <PDF@m-eitan.co.il>',
   replyTo: process.env.MAIL_REPLY_TO || 'kobi@eitan-m.co.il',
   adminEmail: (process.env.ADMIN_EMAIL || 'kobi@eitan-m.co.il').toLowerCase(),
   senderName: process.env.SENDER_NAME || 'קובי איתן',
+  // כתובת למשלוח דואר — לא חובה; אם מוגדרת ב-Vercel היא תופיע בתחתית כל מייל.
   senderAddress: process.env.SENDER_ADDRESS || '',
   productionUrl: 'https://pdf.m-eitan.co.il',
 };

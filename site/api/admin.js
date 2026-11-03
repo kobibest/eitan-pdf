@@ -43,7 +43,6 @@ module.exports = async (req, res) => {
 
 function warnings() {
   const w = [];
-  if (!CONFIG.senderAddress) w.push('לא הוגדרה כתובת השולח (SENDER_ADDRESS ב-Vercel). חוק התקשורת דורש לציין בכל דבר פרסומת את שם השולח, כתובתו ודרכי יצירת קשר.');
   return w;
 }
 
