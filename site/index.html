@@ -13,7 +13,7 @@
 <link rel="icon" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&family=Rubik:wght@600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --navy: #0B2A82;
@@ -232,6 +232,36 @@
     .step { grid-template-columns: 1fr; padding: 22px 20px; }
     .btn { width: 100%; justify-content: center; }
   }
+  /* באנר צף: איתן | דיגיטציה ארגונית (המיתוג של digital.m-eitan.co.il) */
+  .ed {
+    --ed-ink: #171A2F; --ed-green: #12B886; --ed-mint: #7FE0BF; --ed-muted: #B7BDD0; --ed-line: #2E3456;
+    position: fixed; z-index: 50; inset-inline-start: 20px; bottom: 20px; width: 340px; max-width: calc(100vw - 32px);
+    background: var(--ed-ink); color: #fff; border: 1px solid var(--ed-line); border-radius: 16px;
+    padding: 18px 18px 16px; box-shadow: 0 24px 48px -18px rgba(10,12,30,.55);
+    font-family: 'IBM Plex Sans Hebrew', 'Segoe UI', system-ui, sans-serif; line-height: 1.55;
+    opacity: 0; transform: translateY(16px); transition: opacity .35s ease, transform .35s ease; pointer-events: none;
+  }
+  .ed.on { opacity: 1; transform: none; pointer-events: auto; }
+  .ed[hidden] { display: none; }
+  .ed-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #fff; margin-inline-end: 28px; }
+  .ed-brand svg { width: 38px; height: 38px; flex: none; }
+  .ed-brand b { display: block; font-family: 'Rubik', Arial, sans-serif; font-weight: 700; font-size: 1.3rem; line-height: 1; }
+  .ed-brand small { display: block; font-size: .8rem; color: var(--ed-muted); font-weight: 500; margin-top: 3px; }
+  .ed p { margin: 12px 0 14px; font-size: .95rem; color: #E6E9F2; }
+  .ed p strong { color: var(--ed-mint); font-weight: 600; }
+  .ed-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .ed-cta { background: var(--ed-green); color: var(--ed-ink); font-weight: 600; font-size: .95rem; text-decoration: none; padding: 9px 16px; border-radius: 10px; }
+  .ed-cta:hover { background: #0FA578; }
+  .ed-more { color: var(--ed-muted); font-size: .9rem; text-decoration: underline; text-underline-offset: 3px; }
+  .ed-more:hover { color: #fff; }
+  .ed-x { position: absolute; top: 10px; inset-inline-end: 10px; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--ed-muted); font-size: 22px; line-height: 1; cursor: pointer; }
+  .ed-x:hover { background: var(--ed-line); color: #fff; }
+  .ed a:focus-visible, .ed button:focus-visible { outline: 3px solid var(--ed-green); outline-offset: 3px; }
+  @media (max-width: 600px) {
+    .ed { inset-inline: 12px; bottom: 12px; width: auto; max-width: none; padding: 14px 14px 12px; }
+    .ed p { font-size: .9rem; margin: 10px 0 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .ed { transition: none; } }
 </style>
 </head>
 <body>
@@ -483,7 +513,7 @@
 
 <footer>
   <div class="wrap">
-    <span>איתןPDF נבנתה על ידי <a href="https://m-eitan.co.il">קובי איתן</a>. קוד פתוח ברישיון MIT.</span>
+    <span>איתןPDF נבנתה על ידי <a href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=footer">קובי איתן, איתן | דיגיטציה ארגונית</a>. קוד פתוח ברישיון MIT.</span>
     <span class="foot-links"><button type="button" class="foot-nl" data-nl-open>עדכונים במייל</button><a href="/privacy">פרטיות</a><a href="https://github.com/kobibest/eitan-pdf">GitHub</a><a href="https://github.com/kobibest/eitan-pdf/releases">כל הגרסאות</a><a href="mailto:kobi@eitan-m.co.il">יצירת קשר</a></span>
   </div>
 </footer>
@@ -600,6 +630,33 @@
         $('nl-form').hidden = true; $('nl-ok').hidden = false;
       } catch (ex) { show(ex.message); }
       btn.disabled = false; btn.textContent = 'הרשמה לעדכונים';
+    });
+  })();
+</script>
+<aside class="ed" id="ed" aria-label="איתן, דיגיטציה ארגונית" hidden>
+  <button type="button" class="ed-x" id="ed-x" aria-label="סגירת הבאנר">×</button>
+  <a class="ed-brand" href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=floating_banner" target="_blank" rel="noopener">
+    <svg viewBox="0 0 120 120" aria-hidden="true"><rect x="46" y="10" width="28" height="28" rx="6" fill="#12B886"/><rect x="57" y="38" width="6" height="14" fill="#fff"/><rect x="24" y="50" width="72" height="6" rx="3" fill="#fff"/><rect x="24" y="52" width="6" height="16" fill="#fff"/><rect x="57" y="52" width="6" height="16" fill="#fff"/><rect x="90" y="52" width="6" height="16" fill="#fff"/><rect x="13" y="68" width="28" height="28" rx="6" fill="#fff"/><rect x="46" y="68" width="28" height="28" rx="6" fill="#fff"/><rect x="79" y="68" width="28" height="28" rx="6" fill="#fff"/></svg>
+    <span><b>איתן</b><small>דיגיטציה ארגונית</small></span>
+  </a>
+  <p>מאותו יוצר של איתןPDF: עבודה מסורבלת עולה כסף. <strong>אבחון, אסטרטגיה והטמעה</strong> של CRM, ERP, בוטים וחיבור בין מערכות.</p>
+  <div class="ed-actions">
+    <a class="ed-cta" href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=floating_banner#contact" target="_blank" rel="noopener">לשיחת ייעוץ חינם</a>
+    <a class="ed-more" href="https://digital.m-eitan.co.il/?utm_source=eitanpdf&amp;utm_medium=referral&amp;utm_campaign=floating_banner" target="_blank" rel="noopener">לאתר</a>
+  </div>
+</aside>
+<script>
+  (function () {
+    const K = 'ed-banner-closed', box = document.getElementById('ed');
+    let closed = null; try { closed = localStorage.getItem(K); } catch (e) {}
+    if (!box || (closed && Date.now() - Number(closed) < 14 * 864e5)) return;
+    box.hidden = false;
+    const show = () => { if (window.scrollY > 500) { box.classList.add('on'); window.removeEventListener('scroll', show); } };
+    window.addEventListener('scroll', show, { passive: true });
+    setTimeout(() => box.classList.add('on'), 12000);
+    document.getElementById('ed-x').addEventListener('click', () => {
+      box.classList.remove('on'); setTimeout(() => { box.hidden = true; }, 350);
+      try { localStorage.setItem(K, String(Date.now())); } catch (e) {}
     });
   })();
 </script>
