@@ -14,12 +14,108 @@
 })(typeof self !== 'undefined' ? self : this, function (PDFLib, fontkit, H, TE) {
   'use strict';
 
-  const { PDFDocument, PDFName, PDFHexString, degrees, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix, StandardFonts, LineCapStyle } = PDFLib;
+  const { PDFDocument, PDFName, PDFHexString, PDFDict, PDFStream, degrees, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix, StandardFonts, LineCapStyle } = PDFLib;
 
   const LOAD_OPTS = { ignoreEncryption: true, updateMetadata: false };
 
-  async function load(bytes) {
+  /**
+   * טעינת מסמך. קבצים מוצפנים נטענים מפוענחים כשיש סיסמה; בלי סיסמה — רק לזיהוי
+   * (קובץ מוצפן שלא פוענח לא אמור להגיע לכאן: בפתיחה מפענחים אותו בעזרת decrypt).
+   */
+  async function load(bytes, password) {
+    if (password != null) return PDFDocument.load(bytes, { password, updateMetadata: false });
     return PDFDocument.load(bytes, LOAD_OPTS);
+  }
+
+  /* ---------- סיסמה והרשאות ---------- */
+
+  const PERMISSION_KEYS = ['printing', 'copying', 'modifying', 'annotating', 'fillingForms', 'documentAssembly'];
+
+  /** הרשאות מתוך מילון ההצפנה (שדה P). ביטים לפי תקן PDF, טבלה 22 */
+  function readPermissions(doc) {
+    const enc = doc.context.lookup(doc.context.trailerInfo.Encrypt);
+    if (!(enc instanceof PDFDict)) return null;
+    const pObj = enc.get(PDFName.of('P'));
+    const p = pObj && typeof pObj.asNumber === 'function' ? pObj.asNumber() | 0 : -1;
+    const bit = (n) => (p & (1 << (n - 1))) !== 0;
+    return {
+      printing: bit(3) ? (bit(12) ? 'highResolution' : 'lowResolution') : false,
+      modifying: bit(4), copying: bit(5), annotating: bit(6), fillingForms: bit(9), documentAssembly: bit(11),
+    };
+  }
+
+  /**
+   * מצב האבטחה של קובץ: { encrypted, needsPassword, permissions }
+   * needsPassword=false בקובץ מוצפן = קובץ עם הגבלות בלבד, שנפתח בלי סיסמה.
+   */
+  async function inspectSecurity(bytes) {
+    const raw = await PDFDocument.load(bytes, LOAD_OPTS);
+    if (!raw.isEncrypted) return { encrypted: false, needsPassword: false, permissions: null };
+    const permissions = readPermissions(raw);
+    try {
+      await PDFDocument.load(bytes, { password: '', updateMetadata: false });
+      return { encrypted: true, needsPassword: false, permissions };
+    } catch (e) {
+      return { encrypted: true, needsPassword: true, permissions };
+    }
+  }
+
+  /** האם הסיסמה פותחת את הקובץ */
+  async function checkPassword(bytes, password) {
+    try { await PDFDocument.load(bytes, { password, updateMetadata: false }); return true; } catch (e) { return false; }
+  }
+
+  /**
+   * הסרת ההצפנה: מחזיר קובץ רגיל. זורק 'סיסמה שגויה' כשהסיסמה לא מתאימה.
+   * (לקובץ עם הגבלות בלבד — password='')
+   */
+  async function decrypt(bytes, password) {
+    const raw = await PDFDocument.load(bytes, LOAD_OPTS);
+    if (!raw.isEncrypted) return bytes;
+    const encRef = raw.context.trailerInfo.Encrypt;
+    let doc;
+    try {
+      doc = await PDFDocument.load(bytes, { password: password || '', updateMetadata: false });
+    } catch (e) {
+      throw new Error('הסיסמה שגויה');
+    }
+    // טבלאות הפניה ישנות (XRef) נשארות כאובייקטים ומחזירות את סימון ההצפנה — מוחקים אותן
+    const ctx = doc.context;
+    for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
+      const dict = obj instanceof PDFDict ? obj : obj instanceof PDFStream ? obj.dict : null;
+      if (dict && dict.get(PDFName.of('Type')) === PDFName.of('XRef')) ctx.delete(ref);
+    }
+    if (encRef instanceof PDFLib.PDFRef) ctx.delete(encRef);
+    delete ctx.trailerInfo.Encrypt;
+    return doc.save();
+  }
+
+  function randomPassword() {
+    const a = new Uint8Array(18);
+    (typeof crypto !== 'undefined' && crypto.getRandomValues ? crypto : require('crypto').webcrypto).getRandomValues(a);
+    return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  /**
+   * הצפנה (AES-256).
+   * opts: { userPassword, ownerPassword, permissions: { printing, copying, modifying, annotating, fillingForms, documentAssembly } }
+   * בלי userPassword — הקובץ נפתח לכולם ורק ההגבלות חלות. בלי ownerPassword — נוצרת סיסמה אקראית,
+   * כדי שאי אפשר יהיה לבטל את ההגבלות עם סיסמת הפתיחה.
+   */
+  async function encrypt(bytes, opts) {
+    const o = opts || {};
+    const doc = await load(bytes);
+    const perms = {};
+    for (const k of PERMISSION_KEYS) {
+      const v = o.permissions ? o.permissions[k] : undefined;
+      perms[k] = k === 'printing' ? (v === false ? false : v === 'lowResolution' ? 'lowResolution' : 'highResolution') : v !== false;
+    }
+    const restricted = PERMISSION_KEYS.some((k) => perms[k] === false || (k === 'printing' && perms[k] !== 'highResolution'));
+    const userPassword = o.userPassword || '';
+    if (!userPassword && !restricted) return bytes;
+    const ownerPassword = o.ownerPassword || (restricted ? randomPassword() : userPassword);
+    doc.encrypt({ userPassword, ownerPassword, permissions: perms });
+    return doc.save();
   }
 
   /* ---------- טווחי עמודים ---------- */
@@ -145,6 +241,67 @@
         }
       }
     });
+  }
+
+  /** שורות הטקסט של חתימה דיגיטלית גלויה */
+  function digiSigLines(s) {
+    const lines = [`נחתם דיגיטלית ע"י ${s.signer || ''}`.trim()];
+    if (s.date) lines.push(`בתאריך ${s.date}`);
+    if (s.reason) lines.push(`סיבה: ${s.reason}`);
+    if (s.location) lines.push(`מקום: ${s.location}`);
+    return lines;
+  }
+
+  /** מראה גלוי לחתימה דיגיטלית: מסגרת, תמונת חתימה (אם יש) ופרטי החותם */
+  function drawDigiSig(page, vh, s, fonts, img) {
+    const color = hexToRgb(s.color || '#1F35B5');
+    const bw = 0.8;
+    const y0 = vh - s.y - s.h;
+    page.drawRectangle({ x: s.x + bw / 2, y: y0 + bw / 2, width: s.w - bw, height: s.h - bw, borderColor: color, borderWidth: bw, color: rgb(1, 1, 1), opacity: 0.85, borderOpacity: 1 });
+    const pad = Math.max(3, Math.min(6, s.h * 0.08));
+    let textW = s.w - pad * 2;
+    if (img) {
+      const iw = Math.min(s.w * 0.4, (s.h - pad * 2) * (img.width / img.height));
+      const ih = iw * (img.height / img.width);
+      page.drawImage(img, { x: s.x + pad, y: y0 + (s.h - ih) / 2, width: iw, height: ih });
+      textW -= iw + pad;
+    }
+    const lines = digiSigLines(s);
+    const lh = 1.25;
+    const widest = Math.max(...lines.map((l) => fonts.regular.widthOfTextAtSize(H.toVisual(l), 1)));
+    const size = Math.max(4, Math.min(11, (s.h - pad * 2) / (lines.length * lh), textW / widest));
+    const blockH = lines.length * lh * size;
+    H.drawText(page, lines.join('\n'), {
+      x: s.x + s.w - pad - textW, y: vh - s.y - Math.max(pad, (s.h - blockH) / 2), width: textW + 0.5, size,
+      font: fonts.regular, color, align: 'right', lineHeight: lh,
+    });
+  }
+
+  /**
+   * מראה החתימה הדיגיטלית על עמוד שלם בגודל המסגרת (בשביל מראה הווידג'ט).
+   * s: { w, h, signer, date, reason, location, image, color }
+   */
+  async function renderDigiSig(doc, page, s, fonts) {
+    const img = s.image ? await embedImage(doc, s.image) : null;
+    drawDigiSig(page, s.h, { ...s, x: 0, y: 0 }, fonts, img);
+  }
+
+  /**
+   * המרת מלבן בקואורדינטות התצוגה (ראשית בפינה השמאלית-עליונה, אחרי סיבוב)
+   * למלבן PDF בקואורדינטות העמוד — בשביל ווידג'ט החתימה.
+   */
+  function viewRectToPage(page, r) {
+    const { x: x0, y: y0, width: w, height: hgt } = page.getCropBox();
+    const rot = ((page.getRotation().angle % 360) + 360) % 360;
+    const vh = rot === 90 || rot === 270 ? w : hgt;
+    const pts = [[r.x, vh - r.y], [r.x + r.w, vh - r.y - r.h]].map(([vx, vy]) => {
+      if (rot === 90) return [x0 + w - vy, y0 + vx];
+      if (rot === 180) return [x0 + w - vx, y0 + hgt - vy];
+      if (rot === 270) return [x0 + vy, y0 + hgt - vx];
+      return [x0 + vx, y0 + vy];
+    });
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
   }
 
   async function loadFonts(doc, fontBytes) {
@@ -529,5 +686,6 @@
   return {
     load, parseRanges, chunk, buildDocument, splitDocument, imagesToPdf, getFormFields, fillForm,
     viewSize, withViewFrame, pageCount, hexToRgb, StandardFonts, applyTextEdits, MARK_PATHS, MARK_STROKE,
+    inspectSecurity, checkPassword, decrypt, encrypt, PERMISSION_KEYS, viewRectToPage, digiSigLines, renderDigiSig, loadFonts,
   };
 });

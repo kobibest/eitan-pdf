@@ -62,6 +62,10 @@ const ICONS = {
   textEdit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/><path d="M14 20h6"/>',
   revert: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
   redact: '<rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor" stroke="none"/><path d="M3 5h8M3 19h12"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3M12 15v2"/>',
+  unlock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2M12 15v2"/>',
+  cert: '<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  warn: '<path d="M12 4 2.5 20h19z"/><path d="M12 10v4.5M12 17.2v.3"/>',
 };
 /** סימון V / X — אותו נתיב בעורך ובקובץ השמור */
 const markSvg = (shape, color) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${Ops.MARK_PATHS[shape] || Ops.MARK_PATHS.check}" fill="none" stroke="${color}" stroke-width="${Ops.MARK_STROKE}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -85,9 +89,10 @@ const TOOLS = [
   { id: 'sign', label: 'טקסט וחתימה', icon: 'sign', doc: true },
   { id: 'edit', label: 'עריכת טקסט', icon: 'textEdit', doc: true },
   { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
+  { id: 'security', label: 'אבטחה', icon: 'lock', doc: true },
   { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true },
 ];
-const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'edit', 'forms']);
+const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'edit', 'forms', 'security']);
 
 const docs = new Map(); // id → מסמך
 let activeId = null;
@@ -116,11 +121,24 @@ function newDoc(title, path) {
     flattenForms: false,
     scroll: 0,
     curPage: 0, // העמוד הנוכחי בתצוגה (לניווט ולמצב "עמוד יחיד")
+    // אבטחה: סיסמת פתיחה, הגבלות, ומה היה בקובץ המקורי
+    security: newSecurity(),
+    digi: { reason: 'אישור המסמך', location: '' },
   };
   docs.set(d.id, d);
   return d;
 }
 const D = () => docs.get(activeId) || null;
+
+function newSecurity() {
+  const perms = {};
+  for (const k of Ops.PERMISSION_KEYS) perms[k] = true;
+  return {
+    open: { on: false, password: '', confirm: '' },
+    restrict: { on: false, ownerPassword: '', perms },
+    info: { hadOpenPassword: false, wasRestricted: false },
+  };
+}
 
 /** S: מצב ממשק כללי. שדות המסמך מועברים אוטומטית ללשונית הפעילה */
 const S = {
@@ -682,8 +700,14 @@ function placeItem(ctx, x, y) {
     item = { id, type: 'rect', color: '#ffffff', w: 160, h: 40 };
     item.x = Math.max(0, x - 80);
     item.y = Math.max(0, y - 20);
+  } else if (S.placing === 'digisig') {
+    item = { id, type: 'digisig', w: 210, h: 62, image: S.signature || null };
+    item.x = Math.max(0, Math.min(ctx.vw - item.w, x - item.w / 2));
+    item.y = Math.max(0, Math.min(ctx.vh - item.h, y - item.h / 2));
   }
   commit(() => {
+    // חתימה דיגיטלית גלויה אחת למסמך — מיקום חדש מחליף את הקודם
+    if (item.type === 'digisig') for (const k of Object.keys(S.stamps)) S.stamps[k] = S.stamps[k].filter((x) => x.type !== 'digisig');
     (S.stamps[p.key] = S.stamps[p.key] || []).push(item);
     S.activeItem = { key: p.key, id };
     if (S.placing !== 'mark') S.placing = null; // בסימון נשארים בכלי — בדרך כלל מסמנים כמה תיבות ברצף
@@ -784,6 +808,8 @@ function itemEl(ctx, it) {
     el.append(h(`<div class="mark-fill" title="${it.shape === 'x' ? 'סימון X' : 'סימון V'}">${markSvg(it.shape, it.color)}</div>`));
   } else if (it.type === 'redact') {
     el.append(h('<div class="redact-fill" title="השחרה: התוכן מתחת יימחק בשמירה"></div>'));
+  } else if (it.type === 'digisig') {
+    el.append(digiSigPreview(it, scale));
   } else if (it.type === 'rect') {
     const f = h('<div class="rect-fill"></div>');
     f.style.background = it.color;
@@ -817,12 +843,14 @@ function itemEl(ctx, it) {
         it.w = nw;
         if (it.type === 'image' || it.type === 'mark') it.h = nw * (oh / ow);
         else if (it.type === 'rect' || it.type === 'redact') it.h = Math.max(4, oh + dy);
+        else if (it.type === 'digisig') it.h = Math.max(24, oh + dy);
       }
       el.style.left = it.x * ctx.scale + 'px';
       el.style.top = it.y * ctx.scale + 'px';
       el.style.width = it.w * ctx.scale + 'px';
       if (it.type !== 'text') el.style.height = it.h * ctx.scale + 'px';
-      else { const ta = el.querySelector('textarea'); ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+      if (it.type === 'digisig') el.querySelector('.digisig-box').replaceWith(digiSigPreview(it, ctx.scale));
+      if (it.type === 'text') { const ta = el.querySelector('textarea'); ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
     };
     const up = () => {
       target.removeEventListener('pointermove', move);
@@ -834,7 +862,7 @@ function itemEl(ctx, it) {
   };
   grip.addEventListener('pointerdown', (e) => startDrag(e, 'move'));
   resize.addEventListener('pointerdown', (e) => startDrag(e, 'resize'));
-  if (it.type !== 'text') el.addEventListener('pointerdown', (e) => { if (e.target === el || e.target.tagName === 'IMG' || e.target.classList.contains('rect-fill') || e.target.closest('.mark-fill') || e.target.classList.contains('redact-fill')) startDrag(e, 'move'); });
+  if (it.type !== 'text') el.addEventListener('pointerdown', (e) => { if (e.target === el || e.target.tagName === 'IMG' || e.target.classList.contains('rect-fill') || e.target.closest('.digisig-box') || e.target.closest('.mark-fill') || e.target.classList.contains('redact-fill')) startDrag(e, 'move'); });
   return el;
 }
 
@@ -1602,12 +1630,14 @@ function renderSplit() {
 }
 
 async function doSplit(groups) {
+  const problem = securityProblem();
+  if (problem) return toast(problem, { error: true });
   const folder = await api.chooseFolder('לאיזו תיקייה לשמור את החלקים?');
   if (!folder) return;
   try {
     const written = await busy('מפצל ושומר…', async () => {
       const full = await buildBytes(S.pages);
-      const parts = await Ops.splitDocument(full, groups);
+      const parts = await Promise.all((await Ops.splitDocument(full, groups)).map((b) => applySecurity(b)));
       const base = baseName(defaultName());
       return api.writeFiles(folder, parts.map((bytes, i) => ({ name: `${base} - חלק ${i + 1}.pdf`, bytes })));
     });
@@ -1696,13 +1726,19 @@ async function renderPreview(wrap) {
   }
 }
 
+/**
+ * בניית הקובץ. opts.final — שמירה אמיתית: מחילים את הגדרות האבטחה (סיסמה/הגבלות).
+ * חתימה דיגיטלית גלויה לא מצוירת כאן — היא נוספת בשלב החתימה עצמו.
+ */
 async function buildBytes(pages, opts = {}) {
   const sources = {};
   for (const s of S.sources.values()) sources[s.id] = s.bytes;
   const ex = S.extras;
   const warnings = [];
-  const redacted = pages.map((p, i) => [i, (S.stamps[p.key] || []).filter((it) => it.type === 'redact')]).filter(([, r]) => r.length);
-  const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), S.stamps, S.formValues, {
+  const stamps = {};
+  for (const [k, list] of Object.entries(S.stamps)) stamps[k] = list.filter((it) => it.type !== 'digisig');
+  const redacted = pages.map((p, i) => [i, (stamps[p.key] || []).filter((it) => it.type === 'redact')]).filter(([, r]) => r.length);
+  const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), stamps, S.formValues, {
     fonts: S.fonts,
     editFonts: { plex: S.plexFonts || S.fonts, alef: S.fonts },
     // בהשחרה משטחים את הטפסים — אחרת הערכים נשארים בשדות שמתחת
@@ -1712,8 +1748,47 @@ async function buildBytes(pages, opts = {}) {
     onWarning: (w) => warnings.push(w),
   });
   if (warnings.length) toast(warnings[0], { error: true });
-  if (!redacted.length) return out;
-  return applyRedactions(out, redacted);
+  const result = redacted.length ? await applyRedactions(out, redacted) : out;
+  return opts.final ? applySecurity(result) : result;
+}
+
+/** בדיקת הגדרות האבטחה לפני שמירה. מחזיר הודעת שגיאה, או null */
+function securityProblem() {
+  const st = D() && D().security;
+  if (!st) return null;
+  if (st.open.on) {
+    if (!st.open.password) return 'בחרתם להגן על הקובץ בסיסמה, אבל לא הוקלדה סיסמה (בכלי "אבטחה").';
+    if (st.open.password !== st.open.confirm) return 'אימות הסיסמה לא תואם לסיסמה (בכלי "אבטחה").';
+  }
+  return null;
+}
+
+async function applySecurity(bytes) {
+  const st = D().security;
+  if (!st.open.on && !st.restrict.on) return bytes;
+  return Ops.encrypt(bytes, {
+    userPassword: st.open.on ? st.open.password : '',
+    ownerPassword: st.restrict.on ? st.restrict.ownerPassword : '',
+    permissions: st.restrict.on ? { ...st.restrict.perms, printing: st.restrict.perms.printing ? 'highResolution' : false } : undefined,
+  });
+}
+
+/** חתימות דיגיטליות קיימות במקורות של המסמך */
+function existingSignatures() {
+  const used = new Set(S.pages.map((p) => p.src));
+  return [...S.sources.values()].filter((s) => used.has(s.id)).flatMap((s) => s.signatures || []);
+}
+
+/** לפני שמירה שכותבת את הקובץ מחדש: אזהרה אם זה יבטל חתימות דיגיטליות */
+async function confirmBreakSignatures() {
+  const n = existingSignatures().length;
+  if (!n) return true;
+  const choice = await confirmDialog('המסמך חתום דיגיטלית',
+    `במסמך יש ${n === 1 ? 'חתימה דיגיטלית' : `${n} חתימות דיגיטליות`}. שמירת השינויים תבטל ${n === 1 ? 'אותה' : 'אותן'}: מי שיפתח את הקובץ יראה שהחתימה לא תקפה. כדי להוסיף חתימה משלכם בלי לבטל את הקיימות, השתמשו ב"חתימה דיגיטלית" בכלי "אבטחה" בלי לשנות את המסמך.`, [
+      { id: 'save', label: 'לשמור בכל זאת', primary: true },
+      { id: 'cancel', label: 'ביטול', quiet: true },
+    ]);
+  return choice === 'save';
 }
 
 /**
@@ -1785,22 +1860,100 @@ function isTyping() {
 /* =========================================================
  * פתיחת קבצים ולשוניות
  * ======================================================= */
+/** חיפוש מהיר של רצף ASCII בתוך הבייטים (בלי להמיר את כל הקובץ למחרוזת) */
+function hasBytes(bytes, str) {
+  const pat = Array.from(str, (c) => c.charCodeAt(0));
+  const first = pat[0];
+  outer: for (let i = bytes.indexOf(first); i >= 0 && i <= bytes.length - pat.length; i = bytes.indexOf(first, i + 1)) {
+    for (let k = 1; k < pat.length; k++) if (bytes[i + k] !== pat[k]) continue outer;
+    return true;
+  }
+  return false;
+}
+
+/** חלון סיסמה לקובץ מוגן. מחזיר את הסיסמה הנכונה, או null אם בוטל */
+function passwordDialog(name, bytes) {
+  return new Promise((resolve) => {
+    document.body.classList.add('asking');
+    const back = h(`
+      <div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="pw-t" style="width:min(440px,100%)">
+        <header><h2 id="pw-t" class="with-icon">${icon('lock')}הקובץ מוגן בסיסמה</h2></header>
+        <div class="body">
+          <p>כדי לפתוח את <b>${esc(baseName(name))}</b> צריך את הסיסמה שלו.</p>
+          <label class="field"><span>סיסמה</span><input class="input" type="password" dir="ltr" autocomplete="off"></label>
+          <p class="form-error" role="alert" hidden></p>
+        </div>
+        <footer><button class="btn btn-primary" data-ok>פתיחה</button><button class="btn btn-quiet push" data-cancel>ביטול</button></footer>
+      </div></div>`);
+    const inp = back.querySelector('input');
+    const err = back.querySelector('.form-error');
+    const done = (v) => { back.remove(); document.body.classList.remove('asking'); resolve(v); };
+    const tryIt = async () => {
+      const ok = await Ops.checkPassword(bytes, inp.value);
+      if (ok) return done(inp.value);
+      err.textContent = 'הסיסמה שגויה, נסו שוב.';
+      err.hidden = false;
+      inp.select();
+    };
+    back.querySelector('[data-ok]').onclick = tryIt;
+    back.querySelector('[data-cancel]').onclick = () => done(null);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryIt(); });
+    back.addEventListener('keydown', (e) => { if (e.key === 'Escape') done(null); });
+    $('#modal-root').append(back);
+    inp.focus();
+  });
+}
 /** טעינת קובץ PDF לתוך מסמך (ברירת מחדל: הלשונית הפעילה) */
 async function addPdf(entry, opts = {}) {
   const doc = opts.doc || D() || newDoc(baseName(entry.name), entry.path);
-  const bytes = entry.bytes instanceof Uint8Array ? entry.bytes : new Uint8Array(entry.bytes);
+  let bytes = entry.bytes instanceof Uint8Array ? entry.bytes : new Uint8Array(entry.bytes);
+  // קובץ מוצפן: מבקשים סיסמה (אם צריך) ומפענחים. מכאן והלאה עובדים על עותק רגיל,
+  // וההגנה מוחלת מחדש בשמירה לפי ההגדרות בכלי "אבטחה"
+  let sec = null, password = null;
+  if (hasBytes(bytes, '/Encrypt')) {
+    try { sec = await Ops.inspectSecurity(bytes); } catch (e) { sec = null; }
+  }
+  if (sec && sec.encrypted) {
+    if (sec.needsPassword) {
+      password = await passwordDialog(entry.name, bytes);
+      if (password == null) return null;
+    } else password = '';
+    try {
+      bytes = new Uint8Array(await Ops.decrypt(bytes, password));
+    } catch (e) {
+      toast(`לא הצלחנו לפענח את "${entry.name}": ${e.message}`, { error: true });
+      return null;
+    }
+  }
   let pdf;
   try {
     pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: bytes.slice() }).promise;
   } catch (e) {
-    if (e && e.name === 'PasswordException') toast(`"${entry.name}" מוגן בסיסמה. הסירו את הסיסמה ונסו שוב.`, { error: true });
-    else toast(`לא הצלחנו לפתוח את "${entry.name}". ייתכן שהקובץ פגום.`, { error: true });
+    toast(`לא הצלחנו לפתוח את "${entry.name}". ייתכן שהקובץ פגום.`, { error: true });
     return null;
+  }
+  if (sec && sec.encrypted && !doc.sources.size) {
+    // ברירת מחדל: שומרים עם אותה הגנה שהייתה בקובץ
+    const st = doc.security;
+    st.info = { hadOpenPassword: sec.needsPassword, wasRestricted: false };
+    if (sec.needsPassword) Object.assign(st.open, { on: true, password, confirm: password });
+    const perms = sec.permissions;
+    if (perms) {
+      for (const k of Ops.PERMISSION_KEYS) st.restrict.perms[k] = perms[k] !== false;
+      st.info.wasRestricted = Ops.PERMISSION_KEYS.some((k) => perms[k] === false);
+      st.restrict.on = st.info.wasRestricted;
+    }
   }
   const id = 's' + seq++;
   const color = FILE_COLORS[doc.sources.size % FILE_COLORS.length];
-  const src = { id, name: entry.name, path: entry.path || null, bytes, pdf, count: pdf.numPages, color, fields: [] };
+  const src = { id, name: entry.name, path: entry.path || null, bytes, pdf, count: pdf.numPages, color, fields: [], decrypted: !!(sec && sec.encrypted), signatures: [] };
   doc.sources.set(id, src);
+  if (hasBytes(bytes, '/ByteRange')) {
+    api.verifySignatures(bytes).then((list) => {
+      src.signatures = list || [];
+      if (src.signatures.length && doc.id === activeId) render();
+    }).catch(() => {});
+  }
   Ops.getFormFields(bytes).then((f) => {
     src.fields = f.filter((x) => !x.readOnly && x.page >= 0);
     if (src.fields.length && doc.id === activeId) render();
@@ -1983,7 +2136,7 @@ function render() {
   } else {
     ({
       view: renderView, pages: renderPages, sign: renderSign, edit: renderEdit,
-      forms: renderForms, windows: renderWindows,
+      forms: renderForms, security: renderSecurity, windows: renderWindows,
     })[S.tool]();
   }
   desk.scrollTop = keepScroll;
@@ -2442,6 +2595,375 @@ function renderForms() {
 }
 
 /* =========================================================
+ * אבטחה: סיסמה, הגבלות וחתימה דיגיטלית
+ * ======================================================= */
+const PERM_LABELS = {
+  printing: 'הדפסה',
+  copying: 'העתקת טקסט ותמונות',
+  modifying: 'שינוי התוכן',
+  annotating: 'הוספת הערות',
+  fillingForms: 'מילוי טפסים',
+  documentAssembly: 'הוספה, מחיקה וסיבוב של עמודים',
+};
+
+/** התעודה שנבחרה לחתימה (בזיכרון בלבד — כולל סיסמת קובץ התעודה, שלא נשמרת לדיסק) */
+let certChoice = null;
+
+const ipcMsg = (e) => String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
+
+function pwStrength(pw) {
+  if (!pw) return null;
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+  if (/\d/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  if (pw.length < 6) score = 0;
+  return score <= 1 ? { cls: 'weak', text: 'סיסמה חלשה' } : score <= 3 ? { cls: 'medium', text: 'סיסמה בינונית' } : { cls: 'strong', text: 'סיסמה חזקה' };
+}
+
+function passwordGroup(st) {
+  const g = h(`
+    <div class="group">
+      <h2>סיסמת פתיחה</h2>
+      ${st.info.hadOpenPassword ? `<p class="status-line">${icon('lock')}הקובץ המקורי מוגן בסיסמת פתיחה.</p>` : ''}
+      <label class="check"><input type="checkbox" data-k="on" ${st.open.on ? 'checked' : ''}><span>דרישת סיסמה לפתיחת הקובץ<small>הקובץ יוצפן (AES-256). בלי הסיסמה אי אפשר לראות את התוכן.</small></span></label>
+      <div class="sub" data-box ${st.open.on ? '' : 'hidden'}>
+        <label class="field"><span>סיסמה</span><input class="input" type="password" dir="ltr" data-f="password" autocomplete="new-password"></label>
+        <p class="strength" data-strength aria-live="polite"></p>
+        <label class="field"><span>אימות הסיסמה</span><input class="input" type="password" dir="ltr" data-f="confirm" autocomplete="new-password"></label>
+        <label class="check"><input type="checkbox" data-show><span>הצגת הסיסמה</span></label>
+      </div>
+      <p class="hint">${st.info.hadOpenPassword
+        ? (st.open.on ? 'כדי להסיר את הסיסמה — בטלו את הסימון ושמרו.' : 'הסיסמה תוסר בשמירה, והקובץ ייפתח לכל אחד.')
+        : 'חשוב: אם הסיסמה תישכח, אי אפשר יהיה לפתוח את הקובץ. אין שום דרך לשחזר אותה.'}</p>
+    </div>`);
+  const strength = g.querySelector('[data-strength]');
+  const showStrength = () => {
+    const s = pwStrength(st.open.password);
+    strength.className = 'strength ' + (s ? s.cls : '');
+    strength.textContent = s ? s.text : '';
+  };
+  g.querySelectorAll('[data-f]').forEach((inp) => {
+    inp.value = st.open[inp.dataset.f] || '';
+    inp.oninput = () => { st.open[inp.dataset.f] = inp.value; markDirty(); showStrength(); };
+  });
+  g.querySelector('[data-show]').onchange = (e) => g.querySelectorAll('[data-f]').forEach((inp) => (inp.type = e.target.checked ? 'text' : 'password'));
+  g.querySelector('[data-k=on]').onchange = (e) => {
+    st.open.on = e.target.checked;
+    markDirty();
+    render();
+    if (st.open.on && !st.open.password) $('#panel [data-f=password]')?.focus();
+  };
+  showStrength();
+  return g;
+}
+
+function restrictGroup(st) {
+  const g = h(`
+    <div class="group">
+      <h2>הגבלות</h2>
+      ${st.info.wasRestricted ? `<p class="status-line">${icon('lock')}בקובץ המקורי היו הגבלות. הן יישמרו גם בשמירה, אלא אם תבטלו אותן.</p>` : ''}
+      <label class="check"><input type="checkbox" data-k="on" ${st.restrict.on ? 'checked' : ''}><span>הגבלת פעולות על הקובץ<small>הקובץ נפתח כרגיל, אבל רק הפעולות המסומנות מותרות.</small></span></label>
+      <div class="sub" data-box ${st.restrict.on ? '' : 'hidden'}>
+        <p class="hint">מותר:</p>
+        <div class="perm-list">${Ops.PERMISSION_KEYS.map((k) => `<label class="check"><input type="checkbox" data-p="${k}" ${st.restrict.perms[k] ? 'checked' : ''}><span>${PERM_LABELS[k]}</span></label>`).join('')}</div>
+        <label class="field"><span>סיסמת בעלים (רשות)</span><input class="input" type="password" dir="ltr" data-owner autocomplete="new-password"></label>
+        <p class="hint">סיסמת הבעלים מאפשרת לבטל את ההגבלות בתוכנות כמו Adobe. אם תשאירו ריק — תיווצר סיסמה אקראית.</p>
+      </div>
+      <p class="hint">רוב התוכנות (Adobe, דפדפנים) מכבדות את ההגבלות, אבל הן לא הגנה מלאה. להגנה אמיתית השתמשו בסיסמת פתיחה.</p>
+    </div>`);
+  g.querySelector('[data-k=on]').onchange = (e) => { st.restrict.on = e.target.checked; markDirty(); render(); };
+  g.querySelectorAll('[data-p]').forEach((c) => (c.onchange = () => { st.restrict.perms[c.dataset.p] = c.checked; markDirty(); }));
+  const owner = g.querySelector('[data-owner]');
+  owner.value = st.restrict.ownerPassword || '';
+  owner.oninput = () => { st.restrict.ownerPassword = owner.value; markDirty(); };
+  return g;
+}
+
+/** החתימה הדיגיטלית הגלויה שמוקמה במסמך (אם יש) */
+function findDigiSig() {
+  for (let i = 0; i < S.pages.length; i++) {
+    const it = (S.stamps[S.pages[i].key] || []).find((x) => x.type === 'digisig');
+    if (it) return { item: it, pageIndex: i, key: S.pages[i].key };
+  }
+  return null;
+}
+
+function digiSigPreview(it, scale) {
+  const d = D();
+  const lines = Ops.digiSigLines({
+    signer: certChoice ? certChoice.info.name : 'שם החותם',
+    date: todayStr(), reason: d && d.digi.reason, location: d && d.digi.location,
+  });
+  const box = h(`<div class="digisig-box" title="חתימה דיגיטלית — תיווצר בלחיצה על 'חתימה ושמירה'">${it.image ? `<img alt="" src="${it.image}">` : ''}<div class="digisig-lines">${lines.map((l) => `<div>${esc(l)}</div>`).join('')}</div></div>`);
+  const size = Math.max(4, Math.min(11, (it.h - 10) / (lines.length * 1.25)));
+  box.style.fontSize = size * scale + 'px';
+  return box;
+}
+
+function signatureRow(sig) {
+  let status, cls;
+  if (!sig.intact) { status = sig.error || 'החתימה לא תקינה'; cls = 'bad'; }
+  else if (!sig.coversWholeFile) { status = 'החתימה תקינה. נוספו אחריה שינויים או חתימות נוספות.'; cls = 'ok'; }
+  else { status = 'החתימה תקינה — המסמך לא שונה מאז החתימה.'; cls = 'ok'; }
+  const when = sig.signedAt ? new Date(sig.signedAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  const who = sig.selfSigned ? 'תעודה אישית — לא מאושרת ע"י רשות' : sig.certIssuer ? `הונפקה ע"י ${sig.certIssuer} (האמון ברשות לא נבדק)` : '';
+  return h(`
+    <div class="sig-row ${cls}">
+      ${icon(cls === 'ok' ? 'cert' : 'warn')}
+      <div><b>${esc(sig.name || sig.certSubject || 'חותם לא ידוע')}</b>${when ? `<small>${esc(when)}</small>` : ''}<small class="st">${esc(status)}</small>${who ? `<small>${esc(who)}</small>` : ''}${sig.reason ? `<small>סיבה: ${esc(sig.reason)}</small>` : ''}</div>
+    </div>`);
+}
+
+function digiGroup(d) {
+  const placed = findDigiSig();
+  const sigs = existingSignatures();
+  const g = h(`
+    <div class="group">
+      <h2>חתימה דיגיטלית</h2>
+      <p class="hint">חתימה עם תעודה דיגיטלית מוכיחה מי חתם ושהמסמך לא שונה אחרי החתימה. זה שונה מחתימה מצוירת.</p>
+      ${sigs.length ? '<div class="sig-list"><p class="hint"><b>חתימות במסמך:</b></p></div>' : ''}
+      <div class="cert-card"></div>
+      <label class="field"><span>סיבת החתימה</span><input class="input" data-d="reason"></label>
+      <label class="field"><span>מקום (רשות)</span><input class="input" data-d="location" placeholder="למשל: תל אביב"></label>
+      <div class="tool-grid"><button class="tool" data-place aria-pressed="${S.placing === 'digisig'}">${icon('cert')}${placed ? `החתימה בעמוד ${placed.pageIndex + 1}<small>לחיצה ממקמת מחדש</small>` : 'מיקום החתימה בעמוד<small>בלי מיקום — חתימה בלתי נראית</small>'}</button></div>
+      ${placed && savedSignatures().length ? `<label class="check"><input type="checkbox" data-img ${placed.item.image ? 'checked' : ''}><span>עם תמונת החתימה שלי</span></label>` : ''}
+      ${placed ? '<button class="btn btn-quiet" data-unplace>הסרת המיקום (חתימה בלתי נראית)</button>' : ''}
+      <button class="btn btn-primary btn-block" data-sign>${icon('cert')}חתימה ושמירה…</button>
+      <p class="hint">החתימה היא הפעולה האחרונה: היא נשמרת לקובץ חדש, וכל שינוי אחריה יבטל אותה. אין חותמת זמן מאושרת (נדרש חיבור לאינטרנט).</p>
+    </div>`);
+  const list = g.querySelector('.sig-list');
+  if (list) sigs.forEach((s) => list.append(signatureRow(s)));
+
+  const card = g.querySelector('.cert-card');
+  if (certChoice) {
+    const c = certChoice.info;
+    card.append(h(`<div class="cert-chosen">${icon('cert')}<div><b>${esc(c.name)}</b><small>${c.selfSigned ? 'תעודה אישית' : esc(c.issuer || '')}${c.notAfter ? ` · בתוקף עד ${esc(String(c.notAfter).slice(0, 10))}` : ''}</small></div><button class="btn btn-quiet" data-cert>החלפה</button></div>`));
+  } else card.append(h(`<button class="btn btn-block" data-cert>${icon('cert')}בחירת תעודה…</button>`));
+  card.querySelector('[data-cert]').onclick = async () => {
+    const c = await certDialog();
+    if (c) { certChoice = c; render(); }
+  };
+
+  g.querySelectorAll('[data-d]').forEach((inp) => {
+    inp.value = d.digi[inp.dataset.d] || '';
+    inp.oninput = () => { d.digi[inp.dataset.d] = inp.value; refreshItems(); };
+  });
+  g.querySelector('[data-place]').onclick = () => {
+    if (S.placing === 'digisig') { S.placing = null; return render(); }
+    if (!S.signature && savedSignatures().length) S.signature = savedSignatures()[0];
+    S.placing = 'digisig';
+    render();
+  };
+  const img = g.querySelector('[data-img]');
+  if (img) img.onchange = () => commit(() => { placed.item.image = img.checked ? (S.signature || savedSignatures()[0]) : null; });
+  const un = g.querySelector('[data-unplace]');
+  if (un) un.onclick = () => commit(() => { S.stamps[placed.key] = S.stamps[placed.key].filter((x) => x !== placed.item); });
+  g.querySelector('[data-sign]').onclick = digitalSignAndSave;
+  return g;
+}
+
+function renderSecurity() {
+  const d = D();
+  const panel = $('#panel');
+  if (S.placing === 'digisig') panel.append(h('<div class="group"><p class="hint placing-hint">לחצו על המקום בעמוד שבו החתימה צריכה להופיע. Esc לביטול.</p></div>'));
+  panel.append(passwordGroup(d.security), restrictGroup(d.security), digiGroup(d));
+  pageColumn();
+}
+
+/**
+ * אם המסמך לא שונה (קובץ אחד, אותם עמודים, בלי תוספות) — חותמים על הקובץ המקורי עצמו,
+ * בעדכון מצטבר. כך חתימות קודמות שבו נשארות תקפות (חתימה של כמה אנשים).
+ */
+function canSignOriginal() {
+  const d = D();
+  if (d.sources.size !== 1) return null;
+  const src = [...d.sources.values()][0];
+  if (src.decrypted) return null;
+  if (S.pages.length !== src.count || S.pages.some((p, i) => p.src !== src.id || p.index !== i || p.rotate)) return null;
+  if (Object.values(S.stamps).some((l) => l.some((it) => it.type !== 'digisig'))) return null;
+  if (Object.values(S.formValues).some((v) => v && Object.keys(v).length)) return null;
+  if (S.extras.watermark.enabled || S.extras.pageNumbers.enabled || S.flattenForms) return null;
+  return src;
+}
+
+async function digitalSignAndSave() {
+  const d = D();
+  if (!d || !d.pages.length) return;
+  document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  const st = d.security;
+  if (st.open.on || st.restrict.on) {
+    const c = await confirmDialog('חתימה דיגיטלית והגנה בסיסמה',
+      'אי אפשר לשמור באותו קובץ גם חתימה דיגיטלית וגם סיסמה או הגבלות: ההצפנה אחרי החתימה מבטלת אותה. אפשר לחתום ולשמור בלי הגנה, ולשלוח את הקובץ בדרך מאובטחת.', [
+        { id: 'go', label: 'חתימה בלי הגנה', primary: true },
+        { id: 'cancel', label: 'ביטול', quiet: true },
+      ]);
+    if (c !== 'go') return;
+    st.open.on = false;
+    st.restrict.on = false;
+    render();
+  }
+  if (!certChoice) {
+    const c = await certDialog();
+    if (!c) return;
+    certChoice = c;
+    render();
+  }
+  const placed = findDigiSig();
+  const original = canSignOriginal();
+  if (!original && !(await confirmBreakSignatures())) return;
+  const cert = certChoice;
+  try {
+    const signed = await busy(cert.source.kind === 'store' ? 'חותם… ייתכן ש-Windows יבקש את קוד ה-PIN של הכרטיס' : 'חותם…', async () => {
+      const bytes = original ? original.bytes : await buildBytes(S.pages);
+      return api.digitalSign({
+        bytes,
+        source: cert.source,
+        pageIndex: placed ? placed.pageIndex : 0,
+        rect: placed ? { x: placed.item.x, y: placed.item.y, w: placed.item.w, h: placed.item.h } : null,
+        name: cert.info.name,
+        reason: d.digi.reason,
+        location: d.digi.location,
+        appearance: placed ? { signer: cert.info.name, image: placed.item.image || null, color: '#1F35B5' } : null,
+      });
+    });
+    const path = await api.saveAs(`${d.title} - חתום.pdf`, signed, d.path);
+    if (!path) return;
+    // הלשונית נפתחת מחדש מהקובץ החתום, כדי שכל שינוי נוסף יציג אזהרה על ביטול החתימה
+    const entry = await api.readFile(path);
+    for (const s of d.sources.values()) { try { s.pdf.destroy(); } catch (e) { /* כבר נסגר */ } }
+    docs.delete(d.id);
+    syncDirty();
+    await openEntries([entry], { tool: 'security' });
+    toast('המסמך נחתם ונשמר', { action: { label: 'פתיחה בתיקייה', run: () => api.showInFolder(path) } });
+  } catch (e) {
+    console.error(e);
+    toast(ipcMsg(e), { error: true });
+  }
+}
+
+function recentCertFiles() {
+  try { return JSON.parse(localStore('certs.files') || '[]'); } catch (e) { return []; }
+}
+function rememberCertFile(path, name) {
+  const list = [{ path, name }, ...recentCertFiles().filter((x) => x.path !== path)].slice(0, 5);
+  localStore('certs.files', JSON.stringify(list));
+}
+
+/** בחירת תעודה: ממאגר Windows, מקובץ ‎.pfx, או יצירת תעודה אישית. מחזיר { source, info } או null */
+async function certDialog() {
+  let winOk = false;
+  try { winOk = await api.certsSupported(); } catch (e) { /* לא קריטי */ }
+  return new Promise((resolve) => {
+    let mode = winOk ? 'store' : 'file';
+    let storeList = null, picked = null;
+    let filePath = (recentCertFiles()[0] || {}).path || null;
+    const back = h(`
+      <div class="modal-back"><div class="modal cert-modal" role="dialog" aria-modal="true" aria-labelledby="ct-t" style="width:min(560px,100%)">
+        <header><h2 id="ct-t">בחירת תעודה לחתימה</h2><button class="icon-btn" data-x aria-label="סגירה">${icon('x')}</button></header>
+        <div class="body">
+          <div class="segmented" role="tablist">
+            ${winOk ? '<button data-m="store">מאגר Windows</button>' : ''}
+            <button data-m="file">קובץ תעודה</button>
+            <button data-m="create">תעודה אישית חדשה</button>
+          </div>
+          <div class="cert-pane" data-pane></div>
+          <p class="form-error" role="alert" hidden></p>
+        </div>
+        <footer><button class="btn btn-primary" data-ok>בחירה</button><button class="btn btn-quiet push" data-cancel>ביטול</button></footer>
+      </div></div>`);
+    const pane = back.querySelector('[data-pane]');
+    const err = back.querySelector('.form-error');
+    const showErr = (m) => { err.textContent = m || ''; err.hidden = !m; };
+    const done = (v) => { back.remove(); resolve(v); };
+
+    const draw = () => {
+      showErr('');
+      back.querySelectorAll('[data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === mode)));
+      if (mode === 'store') {
+        pane.innerHTML = '<p class="hint">תעודות שמותקנות ב-Windows, כולל כרטיס חכם או טוקן USB (קומסיין, PersonalID ועוד). חברו את הכרטיס לפני הבחירה.</p><div class="cert-list"><p class="hint">טוען את רשימת התעודות…</p></div><button class="btn btn-quiet" data-refresh>רענון הרשימה</button>';
+        const list = pane.querySelector('.cert-list');
+        const fill = () => {
+          list.innerHTML = '';
+          if (!storeList.length) list.append(h('<p class="hint">לא נמצאו תעודות לחתימה. אם יש לכם כרטיס חכם — ודאו שהוא מחובר ושהתוכנה של הספק מותקנת.</p>'));
+          for (const c of storeList) {
+            const b = h(`<button class="cert-item" aria-pressed="${!!picked && picked.thumb === c.thumb}"><b>${esc(c.name)}</b><small>${esc(c.issuer)}${c.selfSigned ? ' · תעודה אישית' : ''} · בתוקף עד ${esc(c.notAfter)}</small></button>`);
+            b.onclick = () => { picked = c; fill(); };
+            b.ondblclick = () => { picked = c; ok(); };
+            list.append(b);
+          }
+        };
+        const load = async () => {
+          try { storeList = await api.certsList(); fill(); } catch (e) { list.innerHTML = ''; showErr('לא הצלחנו לקרוא את מאגר התעודות: ' + ipcMsg(e)); }
+        };
+        pane.querySelector('[data-refresh]').onclick = () => { storeList = null; list.innerHTML = '<p class="hint">טוען…</p>'; load(); };
+        if (storeList) fill(); else load();
+      } else if (mode === 'file') {
+        const recent = recentCertFiles();
+        pane.innerHTML = `
+          <p class="hint">קובץ ‎.pfx או ‎.p12 שקיבלתם מהגורם המנפיק (או תעודה אישית שיצרתם כאן), עם הסיסמה שלו.</p>
+          <div class="file-pick"><span class="file-name" dir="ltr"></span><button class="btn" data-pick>בחירת קובץ…</button></div>
+          ${recent.length ? `<div class="recent"><span>אחרונים:</span>${recent.map((r, i) => `<button class="link" data-r="${i}">${esc(r.name)}</button>`).join('')}</div>` : ''}
+          <label class="field"><span>סיסמת התעודה</span><input class="input" type="password" dir="ltr" data-pw autocomplete="off"></label>`;
+        const nameEl = pane.querySelector('.file-name');
+        const showName = () => { nameEl.textContent = filePath ? filePath.split(/[\\/]/).pop() : 'לא נבחר קובץ'; };
+        showName();
+        const pw = pane.querySelector('[data-pw]');
+        pane.querySelector('[data-pick]').onclick = async () => { const p = await api.pickPfx(); if (p) { filePath = p; showName(); pw.focus(); } };
+        pane.querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => { filePath = recent[+b.dataset.r].path; showName(); pw.focus(); }));
+        pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); });
+      } else {
+        pane.innerHTML = `
+          <p class="hint">התוכנה תיצור תעודה על שמכם ותשמור אותה במחשב הזה. היא מוכיחה שהמסמך לא שונה אחרי החתימה, אבל לא מאושרת ע"י רשות — Adobe יציג "זהות החותם לא אומתה". מתאים לשימוש פנימי, לא מול רשויות ובנקים.</p>
+          <label class="field"><span>שם מלא</span><input class="input" data-c="name"></label>
+          <label class="field"><span>דוא"ל (רשות)</span><input class="input" dir="ltr" data-c="email"></label>
+          <label class="field"><span>סיסמה לתעודה</span><input class="input" type="password" dir="ltr" data-c="password" autocomplete="new-password"></label>
+          <p class="hint">הסיסמה תידרש בכל חתימה, כדי שמי שמשתמש במחשב שלכם לא יוכל לחתום בשמכם.</p>`;
+        pane.querySelector('[data-c=name]').focus();
+      }
+    };
+
+    const ok = async () => {
+      showErr('');
+      try {
+        if (mode === 'store') {
+          if (!picked) return showErr('בחרו תעודה מהרשימה');
+          return done({ source: { kind: 'store', thumb: picked.thumb }, info: { name: picked.name, issuer: picked.issuer, notAfter: picked.notAfter, selfSigned: picked.selfSigned } });
+        }
+        if (mode === 'file') {
+          if (!filePath) return showErr('בחרו קובץ תעודה');
+          const source = { kind: 'file', path: filePath, password: pane.querySelector('[data-pw]').value };
+          const info = await api.certInfo(source);
+          if (info.expired) return showErr('התעודה לא בתוקף');
+          rememberCertFile(filePath, info.name);
+          return done({ source, info });
+        }
+        const v = (k) => pane.querySelector(`[data-c=${k}]`).value;
+        if (!v('name').trim()) return showErr('הקלידו שם מלא');
+        if (v('password').length < 4) return showErr('בחרו סיסמה של 4 תווים לפחות');
+        const password = v('password');
+        const created = await busy('יוצר תעודה…', () => api.certCreate({ name: v('name').trim(), email: v('email').trim(), password }));
+        const source = { ...created, password };
+        const info = await api.certInfo(source);
+        rememberCertFile(created.path, info.name);
+        toast('התעודה נוצרה ונשמרה במחשב');
+        done({ source, info });
+      } catch (e) { showErr(ipcMsg(e)); }
+    };
+
+    back.querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { mode = b.dataset.m; draw(); }));
+    back.querySelector('[data-ok]').onclick = ok;
+    back.querySelector('[data-cancel]').onclick = () => done(null);
+    back.querySelector('[data-x]').onclick = () => done(null);
+    back.addEventListener('keydown', (e) => { if (e.key === 'Escape') done(null); });
+    $('#modal-root').append(back);
+    draw();
+  });
+}
+
+/* =========================================================
  * שילוב ב-Windows: קליק ימני, תמונות ממוזערות, תוכנת ברירת מחדל
  * ======================================================= */
 async function renderWindows() {
@@ -2504,8 +3026,11 @@ async function saveDocument() {
   if (!d || !d.pages.length) return false;
   if (!d.path) return saveAs();
   document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  const problem = securityProblem();
+  if (problem) { toast(problem, { error: true }); return false; }
+  if (!(await confirmBreakSignatures())) return false;
   try {
-    const bytes = await busy('שומר…', () => buildBytes(S.pages));
+    const bytes = await busy('שומר…', () => buildBytes(S.pages, { final: true }));
     await api.writeFile(d.path, bytes);
     d.dirty = false;
     syncDirty();
@@ -2527,8 +3052,11 @@ async function saveAs(opts = {}) {
   document.activeElement && document.activeElement.blur && document.activeElement.blur();
   const pages = opts.onlySelected ? S.pages.filter((p) => S.selected.has(p.key)) : S.pages;
   if (!pages.length) return false;
+  const problem = securityProblem();
+  if (problem) { toast(problem, { error: true }); return false; }
+  if (!(await confirmBreakSignatures())) return false;
   try {
-    const bytes = await busy('מכין את הקובץ…', () => buildBytes(pages));
+    const bytes = await busy('מכין את הקובץ…', () => buildBytes(pages, { final: true }));
     const name = opts.onlySelected ? `${d.title} - עמודים נבחרים.pdf` : defaultName();
     const path = await api.saveAs(name, bytes, d.path);
     if (!path) return false;
