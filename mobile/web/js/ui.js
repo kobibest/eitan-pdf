@@ -8,15 +8,25 @@ export function h(html) {
   return t.content.firstElementChild;
 }
 
+/** בידוד כיווניות לשם קובץ בתוך משפט עברי (שם באנגלית לא "יתערבב" עם הטקסט) */
+export const iso = (s) => `\u2068${s}\u2069`;
+
 export function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-export function toast(text, { error = false, ms = 3200 } = {}) {
-  const el = h(`<div class="toast${error ? ' error' : ''}" role="status"></div>`);
-  el.textContent = text;
+/** הודעה קצרה. action: { label, fn } — כפתור בתוך ההודעה (למשל "ביטול") */
+export function toast(text, { error = false, ms, action } = {}) {
+  const el = h(`<div class="toast${error ? ' error' : ''}" role="status"><span></span></div>`);
+  el.firstChild.textContent = text;
+  if (action) {
+    const b = h('<button class="toast-action"></button>');
+    b.textContent = action.label;
+    b.addEventListener('click', () => { el.remove(); action.fn(); });
+    el.append(b);
+  }
   $('#toasts').append(el);
-  setTimeout(() => el.remove(), ms);
+  setTimeout(() => el.remove(), ms || (action ? 5000 : 3200));
 }
 
 let busyCount = 0;
@@ -33,6 +43,7 @@ const sheets = [];
 /** פתיחת גיליון תחתון. מחזיר את האלמנט; onClose נקרא כשנסגר (גם בכפתור "חזרה") */
 export function openSheet(innerHtml, { onClose } = {}) {
   const root = $('#sheet-root');
+  $('#toasts').replaceChildren(); // הודעה ישנה לא תסתיר את הגיליון
   const wrap = h(`<div class="sheet-wrap"><div class="sheet-veil"></div><div class="sheet" role="dialog" aria-modal="true">${innerHtml}</div></div>`);
   const entry = { wrap, onClose };
   wrap.querySelector('.sheet-veil').addEventListener('click', () => closeSheet(entry));
@@ -85,12 +96,30 @@ export function prompt({ title, text = '', value = '', type = 'text', ok = 'אי
   });
 }
 
-/** תפריט פעולות: items = [{ id, label, icon }]. מחזיר את ה-id שנבחר, או null */
-export function menu(items) {
+/**
+ * תפריט פעולות: items = [{ id, label, icon, sub, disabled }]. מחזיר את ה-id שנבחר, או null.
+ * title / note — כותרת והסבר מעל הרשימה
+ */
+export function menu(items, { title = '', note = '' } = {}) {
   return new Promise((resolve) => {
     let done = false;
-    const s = openSheet(`<ul class="menu-list">${items.map((it) => `
-      <li><button data-id="${esc(it.id)}">${it.icon || ''}<span>${esc(it.label)}</span></button></li>`).join('')}</ul>`,
+    const s = openSheet(`${title ? `<h2>${esc(title)}</h2>` : ''}${note ? `<p>${esc(note)}</p>` : ''}<ul class="menu-list">${items.map((it) => `
+      <li><button data-id="${esc(it.id)}" ${it.disabled ? 'disabled' : ''}>${it.icon || ''}<span class="mi-text"><span>${esc(it.label)}</span>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span></button></li>`).join('')}</ul>`,
+    { onClose: () => { if (!done) resolve(null); } });
+    s.wrap.querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => {
+      done = true;
+      resolve(b.dataset.id);
+      s.close();
+    }));
+  });
+}
+
+/** שאלה עם כפתורים: buttons = [{ id, label, primary, danger }]. מחזיר id, או null */
+export function choose(title, text, buttons) {
+  return new Promise((resolve) => {
+    let done = false;
+    const s = openSheet(`<h2>${esc(title)}</h2>${text ? `<p>${esc(text)}</p>` : ''}
+      <div class="actions col">${buttons.map((b) => `<button class="btn ${b.primary ? '' : b.danger ? 'danger' : 'quiet'}" data-id="${esc(b.id)}">${esc(b.label)}</button>`).join('')}</div>`,
     { onClose: () => { if (!done) resolve(null); } });
     s.wrap.querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => {
       done = true;

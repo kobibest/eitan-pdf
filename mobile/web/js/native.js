@@ -70,3 +70,76 @@ export function onReceivedFiles(onIncoming, onFiles, onError) {
     }
   });
 }
+
+/* ---------- שמירה ושיתוף ---------- */
+
+/** מעביר בתים לקובץ זמני בצד של אנדרואיד, בחלקים (כדי לא לחנוק את הגשר) */
+async function writeTemp(name, bytes) {
+  const { path } = await EitanFiles.createTemp({ name });
+  const CHUNK = 512 * 1024;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    await EitanFiles.appendTemp({ path, data: toBase64(bytes.subarray(i, i + CHUNK)) });
+  }
+  return path;
+}
+
+function toBase64(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+function download(name, bytes) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/** שמירה מעל הקובץ המקורי (uri) */
+export async function writeOver(uri, name, bytes) {
+  if (!isNative) { download(name, bytes); return; }
+  const path = await writeTemp(name, bytes);
+  await EitanFiles.writeToUri({ path, uri });
+}
+
+/** "שמור בשם". מחזיר { uri, name, writable }, או null בביטול */
+export async function saveAs(name, bytes) {
+  if (!isNative) { download(name, bytes); return { uri: null, name, writable: false }; }
+  const path = await writeTemp(name, bytes);
+  const res = await EitanFiles.saveAs({ path, name });
+  return res.cancelled ? null : res;
+}
+
+/** שמירת כמה קבצים לתיקייה. files: [{ name, bytes }]. מחזיר את מספר הקבצים, או null בביטול */
+export async function saveToFolder(files) {
+  if (!isNative) { files.forEach((f) => download(f.name, f.bytes)); return files.length; }
+  const list = [];
+  for (const f of files) list.push({ path: await writeTemp(f.name, f.bytes) });
+  const res = await EitanFiles.saveToFolder({ files: list });
+  return res.cancelled ? null : res.count;
+}
+
+/** שיתוף. files: [{ name, bytes }] */
+export async function share(files) {
+  if (!isNative) {
+    const fl = files.map((f) => new File([f.bytes], f.name, { type: 'application/pdf' }));
+    if (navigator.canShare && navigator.canShare({ files: fl })) await navigator.share({ files: fl });
+    else files.forEach((f) => download(f.name, f.bytes));
+    return;
+  }
+  const list = [];
+  for (const f of files) list.push({ path: await writeTemp(f.name, f.bytes) });
+  await EitanFiles.share({ files: list });
+}
+
+/** קריאת קובץ מתוך www (גופנים) */
+export async function readAsset(rel) {
+  const res = await fetch(rel);
+  if (!res.ok) throw new Error('missing asset ' + rel);
+  return new Uint8Array(await res.arrayBuffer());
+}

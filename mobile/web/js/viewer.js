@@ -20,6 +20,7 @@ export class Viewer {
     this.els = [];
     this.scale = 1;
     this.fitScale = 1;
+    this.refs = [];
     this.current = 0;
     this.near = new Set();
     this.rendered = new Map();   // i -> scale שבו צויר
@@ -36,21 +37,29 @@ export class Viewer {
 
   /* ---------- טעינה ---------- */
 
-  async open(pdf) {
+  /**
+   * refs: [{ pdf, index, rotate }] — עמודים, אולי מכמה קבצים, עם סיבוב נוסף.
+   * page: לאיזה עמוד לעבור; keepScale: לשמור על הזום הנוכחי (אם לא היה "התאמה לרוחב")
+   */
+  async open(refs, { page = 0, keepScale = false } = {}) {
+    const prevScale = this.scale;
+    const prevFit = this.fitScale;
     this.close();
     const gen = ++this.gen;
-    this.pdf = pdf;
+    this.refs = refs;
+    this.pdf = refs.length ? refs[0].pdf : null;
     const sizes = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const pg = await pdf.getPage(i);
+    for (const r of refs) {
+      const pg = await r.pdf.getPage(r.index + 1);
       if (gen !== this.gen) return;
-      const vp = pg.getViewport({ scale: 1 });
+      const vp = pg.getViewport({ scale: 1, rotation: (pg.rotate + r.rotate) % 360 });
       sizes.push({ w: vp.width, h: vp.height });
     }
     this.sizes = sizes;
     this.maxW = Math.max(...sizes.map((s) => s.w));
     this.fitScale = this.computeFit();
-    this.scale = this.fitScale;
+    const wasAtFit = Math.abs(prevScale - prevFit) / prevFit < 0.01;
+    this.scale = keepScale && !wasAtFit ? Math.min(this.maxScale, Math.max(this.minScale, prevScale)) : this.fitScale;
     this.els = sizes.map((_, i) => {
       const el = document.createElement('div');
       el.className = 'page';
@@ -62,8 +71,9 @@ export class Viewer {
     });
     this.layout();
     this.scroller.scrollTo(0, 0);
-    this.current = 0;
-    this.onPageChange(0, sizes.length);
+    this.current = Math.max(0, Math.min(sizes.length - 1, page));
+    if (this.current) this.goTo(this.current);
+    this.onPageChange(this.current, sizes.length);
   }
 
   close() {
@@ -76,6 +86,7 @@ export class Viewer {
     this.near.clear();
     this.rendered.clear();
     this.pdf = null;
+    this.refs = [];
   }
 
   get pageCount() { return this.sizes.length; }
@@ -305,14 +316,16 @@ export class Viewer {
     const gen = this.gen;
     const scale = this.scale;
     try {
-      const pg = await this.pdf.getPage(i + 1);
+      const ref = this.refs[i];
+      const pg = await ref.pdf.getPage(ref.index + 1);
       if (gen !== this.gen || !this.near.has(i)) return;
+      const rotation = (pg.rotate + ref.rotate) % 360;
       const dpr = window.devicePixelRatio || 1;
       let r = scale * dpr;
-      const base = pg.getViewport({ scale: 1 });
+      const base = pg.getViewport({ scale: 1, rotation });
       const px = base.width * base.height * r * r;
       if (px > MAX_PIXELS) r *= Math.sqrt(MAX_PIXELS / px);
-      const vp = pg.getViewport({ scale: r });
+      const vp = pg.getViewport({ scale: r, rotation });
       const canvas = document.createElement('canvas');
       canvas.width = Math.ceil(vp.width);
       canvas.height = Math.ceil(vp.height);
