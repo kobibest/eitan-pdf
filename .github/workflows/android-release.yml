@@ -1,6 +1,7 @@
 # אפליקציית אנדרואיד — בניית שחרור חתומה לחנות Play.
 # מופעל רק ביוזמה: ידנית (Actions ← "Android release build" ← Run workflow — זמין אחרי שהקובץ נמצא ב-main),
-# או בדחיפה של תגית שמתחילה ב-android-v (למשל android-v1.2.1) — עובד גם מענף test לפני המיזוג.
+# או בדחיפה של תגית שמתחילה ב-android-v (למשל android-v1.2.1),
+# או בדחיפה לענף test של קומיט שבהודעה שלו מופיע [android-release] — עובד גם לפני המיזוג ל-main.
 # התוצאה: Artifact בשם EitanPDF-Android-release עם AAB חתום (להעלאה ל-Play) ו-APK חתום.
 #
 # המפתח לא נמצא בריפו. הוא נקרא מ-GitHub Secrets (Settings ← Secrets and variables ← Actions):
@@ -15,12 +16,15 @@ on:
   workflow_dispatch:
   push:
     tags: ['android-v*']
+    branches: [test]
 
 permissions:
   contents: read
 
 jobs:
   release:
+    # בדחיפה לענף: רק כשמבקשים במפורש בהודעת הקומיט
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[android-release]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

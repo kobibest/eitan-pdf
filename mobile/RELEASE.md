@@ -42,7 +42,7 @@
 ## 3. בניית שחרור
 
 - אחרי שהקובץ נמצא ב-main: לשונית Actions ← **Android release build** ← Run workflow.
-- או, גם לפני המיזוג: דחיפה של תגית שמתחילה ב-`android-v`, למשל `android-v1.2.1`.
+- או, גם לפני המיזוג: דחיפה של תגית שמתחילה ב-`android-v` (למשל `android-v1.2.1`), או דחיפה לענף `test` של קומיט שבהודעה שלו מופיע `[android-release]`.
 
 התוצאה היא Artifact בשם `EitanPDF-Android-release`, ובו:
 
