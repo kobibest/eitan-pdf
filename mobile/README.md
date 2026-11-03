@@ -22,4 +22,4 @@ npm run apk            # ← android/app/build/outputs/apk/debug/app-debug.apk
 - `android/` — פרויקט Gradle; `EitanFilesPlugin.java` הוא תוסף מקומי לפתיחה, קבלה ושמירה של קבצים
 - minSdk 24 (Android 7.0), targetSdk 36
 
-ב-GitHub Actions ‏(`android-test.yml`) כל דחיפה ל-`test` בונה APK של debug ומעלה אותו כ-Artifact בשם `EitanPDF-Android-test`.
+ב-GitHub Actions ‏(`android-test.yml`) כל דחיפה ל-`test` בונה APK של debug ומעלה אותו כ-Artifact בשם `EitanPDF-Android-test`. שחרור חתום לחנות Play: ראו [RELEASE.md](RELEASE.md).

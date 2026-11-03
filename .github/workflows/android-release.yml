@@ -1,0 +1,108 @@
+# אפליקציית אנדרואיד — בניית שחרור חתומה לחנות Play.
+# מופעל רק ביוזמה: ידנית (Actions ← "Android release build" ← Run workflow — זמין אחרי שהקובץ נמצא ב-main),
+# או בדחיפה של תגית שמתחילה ב-android-v (למשל android-v1.2.1) — עובד גם מענף test לפני המיזוג.
+# התוצאה: Artifact בשם EitanPDF-Android-release עם AAB חתום (להעלאה ל-Play) ו-APK חתום.
+#
+# המפתח לא נמצא בריפו. הוא נקרא מ-GitHub Secrets (Settings ← Secrets and variables ← Actions):
+#   EITANPDF_UPLOAD_KEYSTORE_B64   — קובץ המפתח (upload.jks) בקידוד Base64
+#   EITANPDF_KEYSTORE_PASSWORD     — הסיסמה של קובץ המפתח
+#   EITANPDF_KEY_ALIAS             — שם המפתח בתוך הקובץ (למשל upload)
+#   EITANPDF_KEY_PASSWORD          — הסיסמה של המפתח (לרוב זהה לסיסמת הקובץ)
+# ההוראות המלאות: mobile/RELEASE.md
+name: Android release build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['android-v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check signing secrets
+        env:
+          KS: ${{ secrets.EITANPDF_UPLOAD_KEYSTORE_B64 }}
+          KSP: ${{ secrets.EITANPDF_KEYSTORE_PASSWORD }}
+          KA: ${{ secrets.EITANPDF_KEY_ALIAS }}
+          KP: ${{ secrets.EITANPDF_KEY_PASSWORD }}
+        run: |
+          missing=""
+          [ -n "$KS" ]  || missing="$missing EITANPDF_UPLOAD_KEYSTORE_B64"
+          [ -n "$KSP" ] || missing="$missing EITANPDF_KEYSTORE_PASSWORD"
+          [ -n "$KA" ]  || missing="$missing EITANPDF_KEY_ALIAS"
+          [ -n "$KP" ]  || missing="$missing EITANPDF_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::חסרים Secrets לחתימה:$missing — ראו mobile/RELEASE.md"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      # המנוע המשותף (src/core) — אותן בדיקות כמו בגרסת Windows
+      - name: Engine tests
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+        run: |
+          npm ci
+          npm test
+
+      - name: Build signed AAB and APK
+        working-directory: mobile
+        env:
+          KS_B64: ${{ secrets.EITANPDF_UPLOAD_KEYSTORE_B64 }}
+          EITANPDF_KEYSTORE_PASSWORD: ${{ secrets.EITANPDF_KEYSTORE_PASSWORD }}
+          EITANPDF_KEY_ALIAS: ${{ secrets.EITANPDF_KEY_ALIAS }}
+          EITANPDF_KEY_PASSWORD: ${{ secrets.EITANPDF_KEY_PASSWORD }}
+        run: |
+          # המפתח נכתב רק לתיקייה הזמנית של השרת, ונמחק בסוף הריצה
+          export EITANPDF_KEYSTORE="$RUNNER_TEMP/upload.jks"
+          echo "$KS_B64" | base64 -d > "$EITANPDF_KEYSTORE"
+          npm ci
+          npm run build:web
+          npx cap sync android
+          cd android
+          ./gradlew bundleRelease assembleRelease --no-daemon --stacktrace
+          rm -f "$EITANPDF_KEYSTORE"
+
+      - name: Verify signatures
+        working-directory: mobile/android/app/build/outputs
+        run: |
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          echo "== APK"
+          "$APKSIGNER" verify --verbose --print-certs apk/release/app-release.apk
+          echo "== AAB"
+          jarsigner -verify -certs bundle/release/app-release.aab | tail -3
+          jarsigner -verify bundle/release/app-release.aab | grep -q "jar verified" || { echo "::error::ה-AAB לא חתום"; exit 1; }
+
+      - name: Collect outputs
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p out
+          cp mobile/android/app/build/outputs/bundle/release/app-release.aab "out/EitanPDF-Android-$VERSION.aab"
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk "out/EitanPDF-Android-$VERSION.apk"
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EitanPDF-Android-release
+          path: out/*
+          retention-days: 30
+          compression-level: 0
