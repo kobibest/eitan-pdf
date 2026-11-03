@@ -1,5 +1,7 @@
-# אפליקציית אנדרואיד — גרסת בדיקה: כל דחיפה לענף test בונה APK של debug, בלי לפרסם אותו.
+# אפליקציית אנדרואיד — גרסת בדיקה: כל דחיפה לענף test בונה APK של debug (Artifact + Pre-release קבוע להורדה ישירה).
 # ההורדה: לשונית Actions ← "Android test build" ← הריצה האחרונה ← Artifacts ← EitanPDF-Android-test
+# קישור ישיר לטלפון (Pre-release קבוע שמתעדכן בכל דחיפה; לא נחשב "latest", כך שהורדות Windows לא מושפעות):
+#   https://github.com/kobibest/eitan-pdf/releases/download/android-test/EitanPDF-Android-test.apk
 # APK של debug בלבד: Gradle יוצר מפתח debug זמני על השרת. שום מפתח לא נשמר בריפו.
 name: Android test build
 
@@ -7,6 +9,9 @@ on:
   push:
     branches: [test]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   apk:
@@ -55,3 +60,22 @@ jobs:
           path: out/*.apk
           retention-days: 14
           compression-level: 0
+
+      - name: Publish direct download (pre-release android-test)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          cp out/*.apk out/EitanPDF-Android-test.apk
+          # התגית זזה לקומיט הנוכחי, כדי שהקוד ב-Release יתאים ל-APK
+          git tag -f android-test
+          git push -f origin refs/tags/android-test
+          NOTES="גרסת בדיקה (debug) של איתןPDF לאנדרואיד, מענף test — קומיט ${SHORT}.
+          להתקנה צריך לאשר התקנה ממקורות לא ידועים, ולהסיר קודם גרסת בדיקה קודמת."
+          if gh release view android-test >/dev/null 2>&1; then
+            gh release edit android-test --prerelease --latest=false --notes "$NOTES"
+          else
+            gh release create android-test --prerelease --latest=false --verify-tag \
+              --title "איתןPDF לאנדרואיד — גרסת בדיקה" --notes "$NOTES"
+          fi
+          gh release upload android-test out/EitanPDF-Android-test.apk --clobber
