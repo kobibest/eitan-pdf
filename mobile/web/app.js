@@ -1,6 +1,6 @@
 // איתןPDF לאנדרואיד — ממשק
 import { $, toast, busy, prompt, menu, choose, openSheet, closeTopSheet, esc, iso } from './js/ui.js';
-import { isNative, App, pickPdfs, onReceivedFiles, writeOver, saveAs, saveToFolder, share, readAsset } from './js/native.js';
+import { isNative, App, pickPdfs, onReceivedFiles, writeOver, saveAs, saveToFolder, share, readAsset, pickImages, takePhoto } from './js/native.js';
 import { Viewer } from './js/viewer.js';
 import { PagesEditor } from './js/pages.js';
 import { Annotator } from './js/annotate.js';
@@ -622,6 +622,178 @@ async function editText(it) {
   refreshDoc();
 }
 
+/* ---------- כלים: סימן מים, מספרי עמודים, השחרה, תמונות ---------- */
+
+const TOOL_ICON = {
+  wm: '<svg viewBox="0 0 24 24"><path d="M5 19L19 5"/><path d="M8 5h11v11" opacity=".35"/><path d="M5 8v11h11" opacity=".35"/></svg>',
+  pn: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18H6z"/><path d="M10 17h4M12 15v4" /></svg>',
+  redact: '<svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor"/><path d="M3 5h8M3 19h12"/></svg>',
+  img: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/></svg>',
+  cam: '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+};
+
+async function toolsSheet() {
+  if (!S.doc) return;
+  const ex = S.doc.extras;
+  const choice = await new Promise((resolve) => {
+    let done = false;
+    const card = (id, icon, title, sub) => `<button class="tool-card" data-t="${id}">${icon}<b>${title}</b><small>${sub}</small></button>`;
+    const s = openSheet(`
+      <h2>כלים</h2>
+      <div class="tools-grid">
+        ${card('wm', TOOL_ICON.wm, 'סימן מים', ex.watermark.enabled ? `<span class="on">פעיל:</span> ${esc(ex.watermark.text)}` : 'טקסט שקוף באלכסון')}
+        ${card('pn', TOOL_ICON.pn, 'מספרי עמודים', ex.pageNumbers.enabled ? '<span class="on">פעיל</span>' : 'בתחתית או בראש כל עמוד')}
+        ${card('redact', TOOL_ICON.redact, 'השחרה', 'מוחקת לצמיתות את מה שמתחת')}
+        ${card('img', TOOL_ICON.img, 'תמונות מהגלריה', 'כעמודים בסוף המסמך')}
+        ${card('cam', TOOL_ICON.cam, 'צילום עמוד', 'במצלמה, כעמוד בסוף המסמך')}
+      </div>`, { onClose: () => { if (!done) resolve(null); } });
+    s.wrap.querySelectorAll('[data-t]').forEach((b) => b.addEventListener('click', () => { done = true; resolve(b.dataset.t); s.close(); }));
+  });
+  if (choice === 'wm') watermarkSheet();
+  else if (choice === 'pn') pageNumbersSheet();
+  else if (choice === 'redact') addRedaction();
+  else if (choice === 'img') addImages('gallery');
+  else if (choice === 'cam') addImages('camera');
+}
+
+/** רענון התצוגה המקדימה אחרי שינוי בהגדרות */
+function extrasChanged() {
+  annot.renderAll();
+  refreshDoc();
+}
+
+function watermarkSheet() {
+  const D = S.doc;
+  const wm = { ...D.extras.watermark };
+  if (!wm.enabled) wm.enabled = true;
+  const s = openSheet(`
+    <h2>סימן מים</h2>
+    <label class="switch-row"><span>להוסיף סימן מים לכל העמודים</span><input type="checkbox" data-on ${wm.enabled ? 'checked' : ''}></label>
+    <label class="lbl">טקסט</label>
+    <input class="field" dir="auto" data-text>
+    <label class="lbl">שקיפות</label>
+    <div class="seg" data-op>${[[0.08, 'עדינה מאוד'], [0.16, 'עדינה'], [0.3, 'בינונית'], [0.5, 'בולטת']].map(([v, l]) => `<button data-v="${v}" aria-pressed="${wm.opacity === v}">${l}</button>`).join('')}</div>
+    <label class="lbl">גודל</label>
+    <div class="seg" data-sz>${[[40, 'קטן'], [64, 'רגיל'], [96, 'גדול']].map(([v, l]) => `<button data-v="${v}" aria-pressed="${wm.size === v}">${l}</button>`).join('')}</div>
+    <div class="opts"><div class="inks">${[['#C23A2E', 'אדום'], ['#1F35B5', 'כחול'], ['#5D6B72', 'אפור']].map(([c, n]) => `<button class="ink" data-c="${c}" aria-label="${n}" aria-pressed="${wm.color === c}" style="--c:${c}"></button>`).join('')}</div></div>
+    <div class="actions"><button class="btn" data-ok>אישור</button></div>`);
+  const w = s.wrap;
+  const text = w.querySelector('[data-text]');
+  text.value = wm.text;
+  // כל שינוי מוצג מיד על העמוד שמאחורי הגיליון
+  let first = true;
+  const apply = () => {
+    const patch = { enabled: w.querySelector('[data-on]').checked, text: text.value };
+    if (first) { D.setExtras('watermark', { ...wm, ...patch }); first = false; } else { Object.assign(D.extras.watermark, wm, patch); D.dirty = true; }
+    extrasChanged();
+  };
+  const seg = (sel, key, num) => w.querySelectorAll(`${sel} [data-v]`).forEach((b) => b.addEventListener('click', () => {
+    wm[key] = num ? +b.dataset.v : b.dataset.v;
+    w.querySelectorAll(`${sel} [data-v]`).forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    apply();
+  }));
+  seg('[data-op]', 'opacity', true);
+  seg('[data-sz]', 'size', true);
+  w.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => {
+    wm.color = b.dataset.c;
+    w.querySelectorAll('[data-c]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    apply();
+  }));
+  w.querySelector('[data-on]').addEventListener('change', apply);
+  text.addEventListener('input', apply);
+  w.querySelector('[data-ok]').addEventListener('click', () => s.close());
+  apply();
+}
+
+function pageNumbersSheet() {
+  const D = S.doc;
+  const pn = { ...D.extras.pageNumbers };
+  if (!pn.enabled) pn.enabled = true;
+  const formats = ['עמוד {n} מתוך {total}', 'עמוד {n}', '{n}', '- {n} -', '{n}/{total}'];
+  const positions = [['bottom-center', 'למטה באמצע'], ['bottom-right', 'למטה מימין'], ['bottom-left', 'למטה משמאל'], ['top-center', 'למעלה באמצע'], ['top-right', 'למעלה מימין'], ['top-left', 'למעלה משמאל']];
+  const s = openSheet(`
+    <h2>מספרי עמודים</h2>
+    <label class="switch-row"><span>להוסיף מספרים לעמודים</span><input type="checkbox" data-on ${pn.enabled ? 'checked' : ''}></label>
+    <label class="lbl">נוסח</label>
+    <select class="field" data-f="format">${formats.map((f) => `<option value="${esc(f)}" ${pn.format === f ? 'selected' : ''}>${esc(f.replace('{n}', '3').replace('{total}', '12'))}</option>`).join('')}</select>
+    <label class="lbl">מיקום</label>
+    <select class="field" data-f="position">${positions.map(([v, l]) => `<option value="${v}" ${pn.position === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <label class="switch-row"><span>בלי מספר בעמוד הראשון (שער)</span><input type="checkbox" data-skip ${pn.skipFirst ? 'checked' : ''}></label>
+    <div class="actions"><button class="btn" data-ok>אישור</button></div>`);
+  const w = s.wrap;
+  let first = true;
+  const apply = () => {
+    Object.assign(pn, {
+      enabled: w.querySelector('[data-on]').checked,
+      format: w.querySelector('[data-f="format"]').value,
+      position: w.querySelector('[data-f="position"]').value,
+      skipFirst: w.querySelector('[data-skip]').checked,
+    });
+    if (first) { D.setExtras('pageNumbers', pn); first = false; } else { Object.assign(D.extras.pageNumbers, pn); D.dirty = true; }
+    extrasChanged();
+  };
+  w.querySelectorAll('input, select').forEach((el) => el.addEventListener('change', apply));
+  w.querySelector('[data-ok]').addEventListener('click', () => s.close());
+  apply();
+}
+
+function addRedaction() {
+  placeStamp({ type: 'redact', w: 160, h: 36 });
+  toast('גררו את המלבן על מה שצריך להימחק, והגדילו מהפינה. התוכן מתחתיו יימחק לצמיתות בשמירה.', { ms: 5000 });
+}
+
+/** תמונות → עמודים: מהגלריה (כמה) או מצלמה (עמוד אחרי עמוד). target: 'add' למסמך הפתוח, 'new' למסמך חדש */
+async function collectImages(mode) {
+  const images = [];
+  try {
+    if (mode === 'gallery') {
+      busy(true, 'מכין את התמונות…');
+      try { images.push(...await pickImages()); } finally { busy(false); }
+    } else {
+      for (;;) {
+        const img = await takePhoto();
+        if (!img) break;
+        images.push(img);
+        const c = await choose(images.length === 1 ? 'צולם עמוד אחד' : `צולמו ${images.length} עמודים`, '', [
+          { id: 'more', label: 'צילום עמוד נוסף', primary: true },
+          { id: 'done', label: 'סיום' },
+        ]);
+        if (c !== 'more') break;
+      }
+    }
+  } catch (err) {
+    console.error(err);
+    if (!/cancel/i.test(String(err && err.message))) toast(err && err.code === 'NO_CAMERA' ? 'לא נמצאה אפליקציית מצלמה במכשיר.' : 'קריאת התמונה נכשלה.', { error: true });
+  }
+  return images;
+}
+
+async function imagesToSource(images, name) {
+  const bytes = new Uint8Array(await Ops.imagesToPdf(images, {}));
+  return { name, bytes, uri: null, writable: false };
+}
+
+async function addImages(mode) {
+  const images = await collectImages(mode);
+  if (!images.length) return;
+  busy(true, 'יוצר עמודים…');
+  let file;
+  try { file = await imagesToSource(images, 'תמונות.pdf'); } catch (err) { console.error(err); toast('יצירת העמודים נכשלה.', { error: true }); return; } finally { busy(false); }
+  await addFiles([file]);
+}
+
+async function imagesToNewDoc(mode) {
+  if (S.doc && S.doc.dirty && !(await confirmDiscard())) return;
+  const images = await collectImages(mode);
+  if (!images.length) return;
+  busy(true, 'יוצר PDF…');
+  let file;
+  const stamp = new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\./g, '-');
+  try { file = await imagesToSource(images, `${mode === 'camera' ? 'סריקה' : 'תמונות'} ${stamp}.pdf`); } catch (err) { console.error(err); toast('יצירת ה-PDF נכשלה.', { error: true }); return; } finally { busy(false); }
+  await openFiles([file]);
+  if (S.doc) { S.doc.dirty = true; refreshDoc(); }
+}
+
 /* ---------- טפסים ---------- */
 
 /** מילוי שדה: תיבת סימון מתהפכת מיד; שאר השדות בגיליון עם "הבא" */
@@ -737,6 +909,9 @@ $('#tb-pages').addEventListener('click', openPages);
 $('#tb-sign').addEventListener('click', signFlow);
 $('#tb-text').addEventListener('click', addText);
 $('#tb-date').addEventListener('click', addDate);
+$('#tb-tools').addEventListener('click', toolsSheet);
+$('#btn-images').addEventListener('click', () => imagesToNewDoc('gallery'));
+$('#btn-camera').addEventListener('click', () => imagesToNewDoc('camera'));
 $('#btn-undo-view').addEventListener('click', undo);
 $('#tb-save').addEventListener('click', saveMenu);
 

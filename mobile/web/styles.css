@@ -443,3 +443,43 @@ svg { flex: none; }
 }
 .opt-list button[aria-pressed="true"] { border-color: var(--ink-blue); background: var(--ink-blue-wash); color: var(--ink-blue); font-weight: 700; }
 .sheet .actions .spacer { flex: 1; }
+
+/* ===== השחרה, סימן מים ומספרי עמודים ===== */
+.item.kind-redact {
+  background: repeating-linear-gradient(-45deg, #000 0 10px, #1d1d1d 10px 20px);
+  opacity: .88;
+}
+.wm-preview {
+  inset: 0; display: grid; place-items: center; pointer-events: none !important; overflow: hidden;
+}
+.wm-preview span {
+  font-family: 'Alef', sans-serif; font-weight: 700; white-space: nowrap; line-height: 1;
+  transform: rotate(-35deg);
+}
+.pn-preview {
+  pointer-events: none !important; font-family: 'Alef', sans-serif; line-height: 1.25; color: #444; white-space: nowrap;
+}
+
+/* גיליון כלים */
+.tools-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 4px; }
+.tool-card {
+  min-height: 92px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--panel);
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px;
+  padding: 12px 14px; text-align: start;
+}
+.tool-card:active { border-color: var(--ink-blue); background: var(--ink-blue-wash); }
+.tool-card svg { width: 26px; height: 26px; fill: none; stroke: var(--navy); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tool-card b { font-size: 15px; }
+.tool-card small { font-size: 12px; color: var(--ink-3); line-height: 1.35; }
+.tool-card .on { color: var(--ok); font-weight: 700; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; margin-bottom: 8px; font-weight: 600; }
+.switch-row input { width: 22px; height: 22px; accent-color: var(--ink-blue); }
+.sheet label.lbl { display: block; font-size: 13px; color: var(--ink-3); margin: 0 0 4px; }
+.sheet select.field { appearance: auto; }
+.home-actions { display: flex; flex-direction: column; gap: 12px; }
+.btn-outline {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 52px; border-radius: 14px; border: 1.5px solid var(--line); background: #fff;
+  color: var(--navy); font-weight: 600; font-size: 16px;
+}
+.btn-outline svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

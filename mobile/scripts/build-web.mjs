@@ -34,7 +34,7 @@ function copy(from, to) {
 fs.cpSync(path.join(MOBILE, 'web'), WWW, { recursive: true });
 
 // המנוע המשותף — כמו ש-src/renderer/index.html טוען אותו בדסקטופ
-for (const f of ['hebrew.js', 'textedit.js', 'ops.js']) copy(`src/core/${f}`, `core/${f}`);
+for (const f of ['hebrew.js', 'textedit.js', 'ops.js', 'redact.js']) copy(`src/core/${f}`, `core/${f}`);
 
 // ספריות (מ-node_modules של השורש)
 copy('node_modules/pdf-lib/dist/pdf-lib.min.js', 'vendor/pdf-lib.min.js');

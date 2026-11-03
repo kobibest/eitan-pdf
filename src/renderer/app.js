@@ -1791,47 +1791,9 @@ async function confirmBreakSignatures() {
   return choice === 'save';
 }
 
-/**
- * השחרה אמיתית: כל עמוד עם השחרה מצויר מחדש כתמונה (200 DPI) עם המלבנים השחורים,
- * ומחליף את העמוד המקורי. בסוף כל המסמך מועתק לקובץ חדש, כך שהתוכן המקורי של
- * העמודים שהוחלפו (טקסט, תמונות, שכבות, הערות) לא נשאר בקובץ אפילו כאובייקט נסתר.
- */
-async function applyRedactions(bytes, redacted) {
-  const { PDFDocument } = window.PDFLib;
-  const pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: bytes.slice() }).promise;
-  const doc = await PDFDocument.load(bytes);
-  const DPI = 200;
-  try {
-    for (const [idx, boxes] of redacted) {
-      const pg = await pdf.getPage(idx + 1);
-      const vp = pg.getViewport({ scale: DPI / 72, rotation: pg.rotate });
-      const c = document.createElement('canvas');
-      c.width = Math.ceil(vp.width);
-      c.height = Math.ceil(vp.height);
-      const ctx2d = c.getContext('2d');
-      ctx2d.fillStyle = '#fff';
-      ctx2d.fillRect(0, 0, c.width, c.height);
-      await pg.render({ canvasContext: ctx2d, viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE }).promise;
-      ctx2d.fillStyle = '#000';
-      const k = DPI / 72;
-      for (const b of boxes) ctx2d.fillRect(Math.floor(b.x * k), Math.floor(b.y * k), Math.ceil(b.w * k) + 1, Math.ceil(b.h * k) + 1);
-      const jpg = await new Promise((res) => c.toBlob((bl) => bl.arrayBuffer().then((a) => res(new Uint8Array(a))), 'image/jpeg', 0.9));
-      const img = await doc.embedJpg(jpg);
-      const w = vp.width / k, hgt = vp.height / k;
-      const np = doc.insertPage(idx, [w, hgt]);
-      np.drawImage(img, { x: 0, y: 0, width: w, height: hgt });
-      doc.removePage(idx + 1);
-      c.width = c.height = 0;
-    }
-  } finally {
-    pdf.destroy();
-  }
-  // העתקה למסמך נקי: רק מה שנגיש מהעמודים עובר. שאריות העמודים המקוריים נשמטות
-  const clean = await PDFDocument.create();
-  const copied = await clean.copyPages(doc, doc.getPageIndices());
-  copied.forEach((p) => clean.addPage(p));
-  clean.setProducer('איתןPDF');
-  return clean.save();
+/** השחרה אמיתית — המימוש המשותף לדסקטופ ולאנדרואיד נמצא ב-src/core/redact.js */
+function applyRedactions(bytes, redacted) {
+  return window.Redact.applyRedactions(bytes, redacted, { pdfjsLib, pdfjsOpts: PDFJS_OPTS });
 }
 
 async function about() {

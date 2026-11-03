@@ -33,6 +33,14 @@ jobs:
           java-version: 21
           cache: gradle
 
+      # מפתח debug קבוע בין בניות, כדי שאפשר יהיה לעדכן את האפליקציה בטלפון בלי להסיר אותה.
+      # נשמר במטמון של GitHub Actions (לא בריפו); בפעם הראשונה Gradle יוצר אותו והמטמון שומר.
+      # מטמון שלא נוגעים בו 7 ימים נמחק — ואז נוצר מפתח חדש ויהיה צורך בהסרה חד-פעמית.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: eitanpdf-android-debug-keystore-v1
+
       # המנוע המשותף (src/core) — אותן בדיקות כמו בגרסת Windows
       - name: Engine tests
         env:
@@ -73,7 +81,7 @@ jobs:
           git tag -f android-test
           git push -f origin refs/tags/android-test
           NOTES="גרסת בדיקה (debug) של איתןPDF לאנדרואיד, מענף test — קומיט ${SHORT}.
-          להתקנה צריך לאשר התקנה ממקורות לא ידועים, ולהסיר קודם גרסת בדיקה קודמת."
+          להתקנה צריך לאשר התקנה ממקורות לא ידועים. אפשר לעדכן מעל גרסת בדיקה קודמת."
           if gh release view android-test >/dev/null 2>&1; then
             gh release edit android-test --prerelease --latest=false --notes "$NOTES"
           else

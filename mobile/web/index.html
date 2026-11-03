@@ -17,10 +17,14 @@
       <p class="home-tag">עבודה עם PDF בעברית. חינמי, ושום קובץ לא יוצא מהטלפון.</p>
     </div>
     <div class="home-body">
-      <button class="btn-gold btn-big" id="btn-open">
+<div class="home-actions">
+            <button class="btn-gold btn-big" id="btn-open">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         פתיחת קובץ PDF
       </button>
+      <button class="btn-outline" id="btn-images"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/></svg>תמונות מהגלריה ל-PDF</button>
+      <button class="btn-outline" id="btn-camera"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>צילום מסמך ל-PDF</button>
+      </div>
       <p class="home-hint">אפשר גם לפתוח קובץ ישר מוואטסאפ, מג׳ימייל או מאפליקציית הקבצים: בוחרים <b>פתח באמצעות</b> או <b>שתף</b>, ואז <b>איתןPDF</b>.</p>
     </div>
     <footer class="home-foot">
@@ -54,6 +58,7 @@
       <button class="tb" id="tb-sign"><svg viewBox="0 0 24 24"><path d="M3 17c2.5 0 3.5-6 5.5-6S9 17 11 17s2.5-3 4-3 1 3 3 3h3"/><path d="M3 21h18"/></svg><span>חתימה</span></button>
       <button class="tb" id="tb-text"><svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg><span>טקסט</span></button>
       <button class="tb" id="tb-date"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>תאריך</span></button>
+      <button class="tb" id="tb-tools"><svg viewBox="0 0 24 24"><path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.6 2.6-2.4-.6-.6-2.4z"/></svg><span>כלים</span></button>
       <button class="tb tb-save" id="tb-save"><svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></svg><span>שמירה</span><i class="dirty-dot" aria-hidden="true"></i></button>
     </nav>
   </section>
@@ -103,6 +108,7 @@
   <script src="core/hebrew.js"></script>
   <script src="core/textedit.js"></script>
   <script src="core/ops.js"></script>
+  <script src="core/redact.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

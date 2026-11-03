@@ -63,6 +63,7 @@ export class Annotator {
     const p = this.doc.pages[i];
     const sz = this.viewer.sizes[i];
     ov.replaceChildren();
+    this.extrasPreview(ov, i, sz);
     for (const fb of this.fieldsByPage[i] || []) ov.append(this.fieldEl(fb, sz));
     for (const it of this.doc.stamps[p.key] || []) ov.append(this.itemEl(it, i, sz));
   }
@@ -70,6 +71,37 @@ export class Annotator {
   /** רענון חותמת/שדה אחד אחרי שינוי */
   refresh() {
     this.renderAll();
+  }
+
+  /* ---------- תצוגה מקדימה: סימן מים ומספרי עמודים ---------- */
+
+  extrasPreview(ov, i, sz) {
+    const ex = this.doc.extras;
+    const wm = ex.watermark;
+    if (wm.enabled && wm.text.trim()) {
+      const el = h('<div class="wm-preview" aria-hidden="true"><span dir="auto"></span></div>');
+      const t = el.firstChild;
+      t.textContent = wm.text;
+      t.style.fontSize = `calc(var(--s) * ${wm.size}px)`;
+      t.style.color = wm.color;
+      t.style.opacity = wm.opacity;
+      ov.append(el);
+    }
+    const pn = ex.pageNumbers;
+    const n = this.doc.pages.length;
+    if (pn.enabled && !(pn.skipFirst && i === 0)) {
+      const el = h('<div class="pn-preview" aria-hidden="true"></div>');
+      el.textContent = pn.format.replace('{n}', String(i + 1)).replace('{total}', String(n));
+      const pos = pn.position || 'bottom-center';
+      // כמו applyPageNumbers במנוע: שוליים של 24 יחידות
+      el.style.fontSize = `calc(var(--s) * ${pn.size || 10}px)`;
+      el.style.left = el.style.right = (24 / sz.w) * 100 + '%';
+      // ראש התיבה במנוע: למעלה 24 − 0.2·גודל מהקצה; למטה התחתית ב-24 − 0.15·גודל (שורה של 1.25)
+      const size = pn.size || 10;
+      el.style[pos.startsWith('top') ? 'top' : 'bottom'] = ((pos.startsWith('top') ? 24 - size * 0.2 : 24 - size * 0.15) / sz.h) * 100 + '%';
+      el.style.textAlign = pos.endsWith('right') ? 'right' : pos.endsWith('left') ? 'left' : 'center';
+      ov.append(el);
+    }
   }
 
   /* ---------- שדות טופס ---------- */
@@ -104,6 +136,9 @@ export class Annotator {
     if (it.type === 'image') {
       pos(el, it, sz);
       el.append(h(`<img src="${esc(it.image)}" alt="" draggable="false">`));
+    } else if (it.type === 'redact') {
+      pos(el, it, sz);
+      el.title = 'השחרה: התוכן מתחת יימחק בשמירה';
     } else {
       pos(el, { x: it.x, y: it.y, w: it.w }, sz);
       const t = h('<div class="txt" dir="auto"></div>');
@@ -173,14 +208,15 @@ export class Annotator {
         it.w = w;
         it.x = Math.max(0, g.it0.x + w0 - w);
         if (it.type === 'image') it.h = g.it0.h * r;
+        else if (it.type === 'redact') it.h = Math.max(6, Math.min(s.h - it.y, g.it0.h + dy)); // השחרה: רוחב וגובה בנפרד
         else it.size = Math.max(4, Math.min(72, g.it0.size * r));
       } else {
         it.x = Math.max(0, Math.min(s.w - it.w, g.it0.x + dx));
-        const hgt = it.type === 'image' ? it.h : (target ? target.offsetHeight / k : it.size * 1.25);
+        const hgt = it.h != null ? it.h : (target ? target.offsetHeight / k : it.size * 1.25);
         it.y = Math.max(0, Math.min(s.h - hgt, g.it0.y + dy));
       }
       if (target) {
-        pos(target, it.type === 'image' ? it : { x: it.x, y: it.y, w: it.w }, s);
+        pos(target, it.h != null ? it : { x: it.x, y: it.y, w: it.w }, s);
         const txt = target.querySelector('.txt');
         if (txt) txt.style.fontSize = `calc(var(--s) * ${it.size}px)`;
       }

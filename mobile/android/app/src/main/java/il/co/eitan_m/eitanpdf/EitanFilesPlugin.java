@@ -3,8 +3,15 @@ package il.co.eitan_m.eitanpdf;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.content.ActivityNotFoundException;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.ImageDecoder;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
+import android.provider.MediaStore;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Parcelable;
@@ -182,6 +189,165 @@ public class EitanFilesPlugin extends Plugin {
     private static ArrayList<Uri> streamListExtra(Intent intent) {
         if (Build.VERSION.SDK_INT >= 33) return intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri.class);
         return intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+    }
+
+    /* ---------- תמונות: גלריה ומצלמה ---------- */
+
+    /** בחירת תמונות בבוחר התמונות של המערכת — בלי הרשאת גישה לגלריה */
+    @PluginMethod
+    public void pickImages(PluginCall call) {
+        Intent intent;
+        if (Build.VERSION.SDK_INT >= 33) {
+            intent = new Intent(MediaStore.ACTION_PICK_IMAGES);
+            intent.setType("image/*");
+            intent.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, Math.min(50, MediaStore.getPickImagesMaxLimit()));
+        } else {
+            intent = new Intent(Intent.ACTION_GET_CONTENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("image/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
+        startActivityForResult(call, intent, "pickImagesResult");
+    }
+
+    @ActivityCallback
+    private void pickImagesResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        Intent data = result.getData();
+        List<Uri> uris = new ArrayList<>();
+        if (result.getResultCode() == android.app.Activity.RESULT_OK && data != null) {
+            ClipData clip = data.getClipData();
+            if (clip != null) {
+                for (int i = 0; i < clip.getItemCount(); i++) uris.add(clip.getItemAt(i).getUri());
+            } else if (data.getData() != null) {
+                uris.add(data.getData());
+            }
+        }
+        io.execute(() -> {
+            try {
+                JSArray out = new JSArray();
+                for (Uri u : uris) out.put(importImage(u));
+                JSObject ret = new JSObject();
+                ret.put("images", out);
+                call.resolve(ret);
+            } catch (Exception e) {
+                Logger.error("EitanFiles", "pickImages", e);
+                call.reject("קריאת התמונה נכשלה", e);
+            }
+        });
+    }
+
+    /** צילום באפליקציית המצלמה של המכשיר — בלי הרשאת מצלמה לאפליקציה */
+    @PluginMethod
+    public void takePhoto(PluginCall call) {
+        try {
+            File dir = new File(incomingDir(), "camera");
+            dir.mkdirs();
+            File f = new File(dir, UUID.randomUUID().toString() + ".jpg");
+            Uri out = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", f);
+            Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            intent.putExtra(MediaStore.EXTRA_OUTPUT, out);
+            intent.setClipData(ClipData.newRawUri("", out));
+            intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            call.getData().put("photoPath", f.getAbsolutePath());
+            startActivityForResult(call, intent, "takePhotoResult");
+        } catch (ActivityNotFoundException e) {
+            call.reject("לא נמצאה אפליקציית מצלמה", "NO_CAMERA", e);
+        } catch (Exception e) {
+            call.reject("פתיחת המצלמה נכשלה", e);
+        }
+    }
+
+    @ActivityCallback
+    private void takePhotoResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        File f = new File(call.getString("photoPath", ""));
+        if (result.getResultCode() != android.app.Activity.RESULT_OK || !f.exists() || f.length() == 0) {
+            JSObject ret = new JSObject();
+            ret.put("cancelled", true);
+            call.resolve(ret);
+            return;
+        }
+        io.execute(() -> {
+            try {
+                JSObject ret = new JSObject();
+                ret.put("image", importImage(Uri.fromFile(f)));
+                f.delete();
+                call.resolve(ret);
+            } catch (Exception e) {
+                Logger.error("EitanFiles", "takePhoto", e);
+                call.reject("קריאת התמונה נכשלה", e);
+            }
+        });
+    }
+
+    private static final int MAX_IMAGE_SIDE = 2400;
+
+    /**
+     * פענוח תמונה (כולל HEIC), סיבוב לפי EXIF, הקטנה לצד ארוך של עד 2400 פיקסלים,
+     * ושמירה כ-JPEG במטמון. כך העמוד ב-PDF יוצא בכיוון הנכון ובגודל סביר.
+     */
+    private JSObject importImage(Uri uri) throws Exception {
+        ContentResolver cr = getContext().getContentResolver();
+        Bitmap bmp;
+        if (Build.VERSION.SDK_INT >= 28) {
+            ImageDecoder.Source src = ImageDecoder.createSource(cr, uri);
+            bmp = ImageDecoder.decodeBitmap(src, (decoder, info, source) -> {
+                int w = info.getSize().getWidth(), h = info.getSize().getHeight();
+                int max = Math.max(w, h);
+                if (max > MAX_IMAGE_SIDE) {
+                    float k = (float) MAX_IMAGE_SIDE / max;
+                    decoder.setTargetSize(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+                }
+                decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+            });
+        } else {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            try (InputStream in = cr.openInputStream(uri)) { BitmapFactory.decodeStream(in, null, bounds); }
+            int sample = 1;
+            while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_IMAGE_SIDE) sample *= 2;
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inSampleSize = sample;
+            try (InputStream in = cr.openInputStream(uri)) { bmp = BitmapFactory.decodeStream(in, null, o); }
+            if (bmp == null) throw new IOException("decode failed");
+            int orientation = ExifInterface.ORIENTATION_NORMAL;
+            try (InputStream in = cr.openInputStream(uri)) {
+                if (in != null) orientation = new ExifInterface(in).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+            } catch (Exception ignored) {
+                // בלי EXIF — משאירים כמו שהיא
+            }
+            int deg = orientation == ExifInterface.ORIENTATION_ROTATE_90 ? 90 : orientation == ExifInterface.ORIENTATION_ROTATE_180 ? 180 : orientation == ExifInterface.ORIENTATION_ROTATE_270 ? 270 : 0;
+            int max = Math.max(bmp.getWidth(), bmp.getHeight());
+            float k = max > MAX_IMAGE_SIDE ? (float) MAX_IMAGE_SIDE / max : 1f;
+            if (deg != 0 || k != 1f) {
+                Matrix m = new Matrix();
+                m.postScale(k, k);
+                m.postRotate(deg);
+                Bitmap r = Bitmap.createBitmap(bmp, 0, 0, bmp.getWidth(), bmp.getHeight(), m, true);
+                if (r != bmp) bmp.recycle();
+                bmp = r;
+            }
+        }
+        File dest = new File(incomingDir(), UUID.randomUUID().toString() + ".jpg");
+        try (OutputStream out = new FileOutputStream(dest)) {
+            // רקע לבן לתמונות שקופות (PNG) — JPEG לא שומר שקיפות
+            if (bmp.hasAlpha()) {
+                Bitmap flat = Bitmap.createBitmap(bmp.getWidth(), bmp.getHeight(), Bitmap.Config.ARGB_8888);
+                android.graphics.Canvas c = new android.graphics.Canvas(flat);
+                c.drawColor(android.graphics.Color.WHITE);
+                c.drawBitmap(bmp, 0, 0, null);
+                bmp.recycle();
+                bmp = flat;
+            }
+            bmp.compress(Bitmap.CompressFormat.JPEG, 88, out);
+        }
+        JSObject f = new JSObject();
+        f.put("path", dest.getAbsolutePath());
+        f.put("width", bmp.getWidth());
+        f.put("height", bmp.getHeight());
+        bmp.recycle();
+        return f;
     }
 
     /* ---------- קבצי פלט זמניים ---------- */

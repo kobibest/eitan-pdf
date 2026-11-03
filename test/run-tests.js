@@ -461,6 +461,38 @@ async function makeForm() {
     assert.deepStrictEqual(await DS.verify(a), []);
   });
 
+  await ok('השחרה: העמוד מוחלף בתמונה והטקסט המקורי לא נשאר בקובץ', async () => {
+    const R = require('../src/core/redact.js');
+    const d = await PDFDocument.create();
+    const f = await d.embedFont(StandardFonts.Helvetica);
+    for (const label of ['KEEP-ONE', 'TOPSECRET', 'KEEP-THREE']) d.addPage([595, 842]).drawText(label, { x: 50, y: 700, size: 24, font: f });
+    const src = await d.save({ useObjectStreams: false });
+    const hex = (t) => Buffer.from(t).toString('hex').toUpperCase();
+    // כל הזרמים בקובץ, מפוענחים — כדי לחפש גם בתוכן דחוס
+    const streams = async (bytes) => {
+      const d = await PDFDocument.load(bytes);
+      let txt = '';
+      for (const [, o] of d.context.enumerateIndirectObjects()) {
+        if (o instanceof P.PDFRawStream) { try { txt += Buffer.from(P.decodePDFRawStream(o).decode()).toString('latin1') + '\n'; } catch (e) { /* תמונה וכד' */ } }
+      }
+      return txt;
+    };
+    assert.ok((await streams(src)).includes(hex('TOPSECRET')), 'הטקסט צריך להופיע בקובץ המקורי');
+    const jpg = fs.readFileSync(path.join(__dirname, 'fixtures/redacted-page.jpg'));
+    const calls = [];
+    const out = await R.applyRedactions(src, [[1, [{ x: 40, y: 120, w: 200, h: 40 }]]], {
+      render: async (idx, boxes) => { calls.push([idx, boxes.length]); return { jpg, width: 595, height: 842 }; },
+    });
+    assert.deepStrictEqual(calls, [[1, 1]]);
+    fs.writeFileSync(path.join(OUT, 'redacted.pdf'), out);
+    const plain = await streams(out);
+    assert.ok(!plain.includes(hex('TOPSECRET')), 'הטקסט המושחר נשאר בקובץ');
+    assert.ok(plain.includes(hex('KEEP-ONE')) && plain.includes(hex('KEEP-THREE')), 'שאר העמודים נפגעו');
+    const r = await PDFDocument.load(out);
+    assert.strictEqual(r.getPageCount(), 3);
+    assert.deepStrictEqual(r.getPage(1).getSize(), { width: 595, height: 842 });
+  });
+
   await ok('המנוע נטען במצב דפדפן (כמו ב-WebView של אנדרואיד) וכותב עברית', async () => {
     const out = await require('./browser-globals.js').run(fonts);
     fs.writeFileSync(path.join(OUT, 'browser-globals.pdf'), out);

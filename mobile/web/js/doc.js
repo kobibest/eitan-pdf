@@ -2,7 +2,7 @@
  * המסמך הפתוח: רשימת קבצי מקור + רשימת עמודים (איזה עמוד מאיזה מקור, וסיבוב).
  * אותו מבנה כמו בגרסת Windows, כך שהשמירה עוברת דרך Ops.buildDocument של המנוע המשותף.
  */
-import { openPdf } from './pdf.js';
+import { openPdf, pdfjsLib, PDFJS_OPTS } from './pdf.js';
 import { iso } from './ui.js';
 
 const Ops = window.PdfOps;
@@ -81,6 +81,11 @@ export class Doc {
     this.history = [];
     this.stamps = {};      // pageKey -> [{ id, type: 'text'|'image', x, y, w, h, ... }] — כמו בדסקטופ
     this.formValues = {};  // srcId -> { fieldName: value }
+    // סימן מים ומספרי עמודים — אותן ברירות מחדל כמו בדסקטופ
+    this.extras = {
+      watermark: { enabled: false, text: 'טיוטה', size: 64, opacity: 0.16, color: '#C23A2E' },
+      pageNumbers: { enabled: false, position: 'bottom-center', format: 'עמוד {n} מתוך {total}', size: 10, skipFirst: false },
+    };
     this.addSource(first, { initial: true });
   }
 
@@ -98,6 +103,7 @@ export class Doc {
       pages: this.pages.map((p) => ({ ...p })),
       stamps: JSON.parse(JSON.stringify(this.stamps)),
       formValues: JSON.parse(JSON.stringify(this.formValues)),
+      extras: JSON.parse(JSON.stringify(this.extras)),
       dirty: this.dirty,
     });
     if (this.history.length > 30) this.history.shift();
@@ -109,6 +115,7 @@ export class Doc {
     this.pages = h.pages;
     this.stamps = h.stamps;
     this.formValues = h.formValues;
+    this.extras = h.extras;
     this.dirty = h.dirty;
     return true;
   }
@@ -143,6 +150,12 @@ export class Doc {
     if (!f) return;
     this.snapshot();
     this.stamps[f.key] = this.stamps[f.key].filter((x) => x.id !== id);
+    this.dirty = true;
+  }
+
+  setExtras(kind, patch) {
+    this.snapshot();
+    Object.assign(this.extras[kind], patch);
     this.dirty = true;
   }
 
@@ -208,11 +221,22 @@ export class Doc {
    * בניית הקובץ דרך המנוע המשותף.
    * pages — ברירת מחדל: כל העמודים. protect=false — בלי הצפנה (לפני פיצול)
    */
-  async build(fonts, { pages = this.pages, protect = true } = {}) {
+  async build(fonts, { pages = this.pages, protect = true, onWarning } = {}) {
     const sources = {};
     for (const s of this.sources.values()) sources[s.id] = s.bytes;
-    const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), this.stamps, this.formValues, { fonts });
-    return protect ? this.protect(out) : out;
+    const ex = this.extras;
+    const redacted = pages.map((p, i) => [i, (this.stamps[p.key] || []).filter((it) => it.type === 'redact')]).filter(([, r]) => r.length);
+    const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), this.stamps, this.formValues, {
+      fonts,
+      // בהשחרה משטחים את הטפסים — אחרת הערכים נשארים בשדות שמתחת (כמו בדסקטופ)
+      flattenForms: redacted.length > 0,
+      watermark: ex.watermark.enabled && ex.watermark.text.trim() ? ex.watermark : null,
+      pageNumbers: ex.pageNumbers.enabled ? ex.pageNumbers : null,
+      onWarning,
+    });
+    // השחרה אמיתית — אותו מימוש כמו בדסקטופ (src/core/redact.js)
+    const result = redacted.length ? await window.Redact.applyRedactions(out, redacted, { pdfjsLib, pdfjsOpts: PDFJS_OPTS }) : out;
+    return protect ? this.protect(result) : result;
   }
 
   /** החלה מחדש של ההגנה שהייתה בקובץ המקורי (סיסמה / הגבלות) */

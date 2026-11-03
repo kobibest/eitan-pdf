@@ -143,3 +143,61 @@ export async function readAsset(rel) {
   if (!res.ok) throw new Error('missing asset ' + rel);
   return new Uint8Array(await res.arrayBuffer());
 }
+
+/* ---------- תמונות ---------- */
+
+async function readImage(f) {
+  const res = await fetch(Cap.convertFileSrc(f.path));
+  if (!res.ok) throw new Error('קריאת התמונה נכשלה');
+  return { bytes: new Uint8Array(await res.arrayBuffer()) };
+}
+
+/** בדפדפן: סיבוב לפי EXIF והקטנה דרך canvas, כמו שהתוסף עושה באנדרואיד */
+async function normalizeInBrowser(file) {
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  const k = Math.min(1, 2400 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * k);
+  c.height = Math.round(bmp.height * k);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
+  const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.88));
+  return { bytes: new Uint8Array(await blob.arrayBuffer()) };
+}
+
+/** בחירת תמונות מהגלריה. מחזיר [{ bytes }] (JPEG) */
+export async function pickImages() {
+  if (isNative) {
+    const { images } = await EitanFiles.pickImages();
+    const out = [];
+    for (const f of images || []) out.push(await readImage(f));
+    return out;
+  }
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.multiple = true;
+  input.hidden = true;
+  document.body.append(input);
+  const files = await new Promise((resolve) => {
+    input.addEventListener('change', () => resolve([...input.files]));
+    input.addEventListener('cancel', () => resolve([]));
+    input.click();
+  });
+  input.remove();
+  const out = [];
+  for (const f of files) out.push(await normalizeInBrowser(f));
+  return out;
+}
+
+/** צילום תמונה. מחזיר { bytes }, או null בביטול */
+export async function takePhoto() {
+  if (isNative) {
+    const res = await EitanFiles.takePhoto();
+    return res.cancelled ? null : readImage(res.image);
+  }
+  const [img] = await pickImages();
+  return img || null;
+}
