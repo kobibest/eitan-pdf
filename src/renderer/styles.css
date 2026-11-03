@@ -821,3 +821,46 @@ select.form-field { padding: 0 2px; }
 .tl-changes .pg { color: var(--ink-3); white-space: nowrap; font-size: var(--fs-xs); }
 .tl-changes .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .tl-changes .tx.gone { color: var(--ink-3); text-decoration: line-through; }
+/* ===== אבטחה: סיסמה, הגבלות וחתימה דיגיטלית ===== */
+.asking .busy { display: none; }
+.modal h2.with-icon { display: flex; align-items: center; gap: 8px; }
+.modal h2.with-icon svg, .status-line svg, .sig-row > svg, .cert-chosen > svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.form-error { color: var(--stamp) !important; font-size: var(--fs-s); font-weight: 500; }
+.group .sub { display: flex; flex-direction: column; gap: 10px; padding-inline-start: 26px; }
+.group .sub[hidden] { display: none; }
+.status-line { display: flex; align-items: center; gap: 7px; margin: 0; font-size: var(--fs-s); color: var(--ink-blue-deep); background: var(--ink-blue-wash); padding: 7px 10px; border-radius: var(--r-ctl); line-height: 1.45; }
+.strength { margin: -4px 0 0; font-size: var(--fs-xs); font-weight: 600; min-height: 1em; }
+.strength.weak { color: var(--stamp); }
+.strength.medium { color: var(--gold-deep); }
+.strength.strong { color: var(--ok); }
+.perm-list { display: flex; flex-direction: column; gap: 7px; }
+.sig-list { display: flex; flex-direction: column; gap: 8px; }
+.sig-row { display: flex; gap: 9px; align-items: flex-start; padding: 9px 10px; border-radius: var(--r-ctl); border: 1px solid var(--line); background: var(--paper); }
+.sig-row.ok > svg { color: var(--ok); }
+.sig-row.bad { border-color: var(--stamp); background: var(--stamp-wash); }
+.sig-row.bad > svg { color: var(--stamp); }
+.sig-row b { display: block; font-weight: 600; }
+.sig-row small { display: block; color: var(--ink-2); font-size: var(--fs-xs); line-height: 1.5; }
+.sig-row small.st { color: var(--ink); font-weight: 500; }
+.sig-row.bad small.st { color: var(--stamp); }
+.cert-chosen { display: flex; gap: 9px; align-items: center; padding: 9px 10px; border-radius: var(--r-ctl); border: 1px solid var(--ink-blue); background: var(--ink-blue-wash); color: var(--ink-blue-deep); }
+.cert-chosen > div { flex: 1; min-width: 0; }
+.cert-chosen b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cert-chosen small { display: block; font-size: var(--fs-xs); color: var(--ink-2); }
+.cert-pane { display: flex; flex-direction: column; gap: 12px; min-height: 180px; }
+.cert-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; }
+.cert-item { text-align: start; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--paper); }
+.cert-item:hover { border-color: var(--ink-3); }
+.cert-item[aria-pressed="true"] { border-color: var(--ink-blue); background: var(--ink-blue-wash); }
+.cert-item b { display: block; font-weight: 600; }
+.cert-item small { display: block; color: var(--ink-2); font-size: var(--fs-xs); margin-top: 2px; }
+.file-pick { display: flex; align-items: center; gap: 10px; }
+.file-pick .file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 7px 10px; border: 1px dashed var(--line); border-radius: var(--r-ctl); color: var(--ink-2); font-size: var(--fs-s); text-align: right; }
+.recent { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: var(--fs-s); color: var(--ink-3); }
+.link { border: 0; background: none; padding: 0; color: var(--ink-blue); font-size: var(--fs-s); text-decoration: underline; cursor: pointer; }
+.placing-hint { color: var(--ink-blue-deep) !important; font-weight: 500; }
+.item.kind-digisig { cursor: move; }
+.digisig-box { display: flex; align-items: center; gap: 4%; width: 100%; height: 100%; padding: 4px 6px; border: 1px solid #1F35B5; background: rgba(255,255,255,.85); color: #1F35B5; font-family: 'Alef', sans-serif; line-height: 1.25; overflow: hidden; direction: rtl; }
+.digisig-box img { width: auto !important; max-width: 40%; height: auto !important; max-height: 90%; order: 2; }
+.digisig-lines { flex: 1; min-width: 0; text-align: right; }
+.digisig-lines div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

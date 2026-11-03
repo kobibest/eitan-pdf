@@ -8,6 +8,7 @@ const H = require('../src/core/hebrew.js');
 const Ops = require('../src/core/ops.js');
 const T = require('../src/core/textedit.js');
 const P = require('pdf-lib');
+const DS = require('../src/core/digisig.js');
 
 const OUT = process.argv[2] || path.join(__dirname, 'out');
 fs.mkdirSync(OUT, { recursive: true });
@@ -353,7 +354,7 @@ async function makeForm() {
   });
 
   await ok('עריכה: המנוע עובד גם עם pdf-lib המכווץ שבממשק', async () => {
-    const min = require('pdf-lib/dist/pdf-lib.min.js');
+    const min = require(path.join(__dirname, '../node_modules/pdf-lib/dist/pdf-lib.min.js'));
     const fakeSelf = { PDFLib: min, HebrewPDF: H };
     // טוענים את הקובץ כמו בדפדפן (בלי module), עם pdf-lib המכווץ
     new Function('self', 'module', fs.readFileSync(path.join(__dirname, '../src/core/textedit.js'), 'utf8'))(fakeSelf, undefined);
@@ -369,6 +370,95 @@ async function makeForm() {
       const after = await linesOf(await d.save(), 0);
       assert.strictEqual(after.length, ref.length - 1);
     }
+  });
+
+  /* ---------- אבטחה ---------- */
+  await ok('הצפנה בסיסמה: בלי סיסמה/סיסמה שגויה נכשל, סיסמה נכונה פותחת', async () => {
+    const enc = await Ops.encrypt(a, { userPassword: 'סוד123', ownerPassword: 'owner' });
+    fs.writeFileSync(path.join(OUT, 'encrypted.pdf'), enc);
+    const sec = await Ops.inspectSecurity(enc);
+    assert.strictEqual(sec.encrypted, true);
+    assert.strictEqual(sec.needsPassword, true);
+    assert.strictEqual(await Ops.checkPassword(enc, 'wrong'), false);
+    assert.strictEqual(await Ops.checkPassword(enc, 'סוד123'), true);
+    await assert.rejects(() => Ops.decrypt(enc, 'wrong'), /שגויה/);
+    const dec = await Ops.decrypt(enc, 'סוד123');
+    const d = await PDFDocument.load(dec);
+    assert.strictEqual(d.isEncrypted, false);
+    assert.strictEqual(d.getPageCount(), 3);
+    assert.strictEqual((await Ops.inspectSecurity(dec)).encrypted, false);
+  });
+
+  await ok('הגבלות בלבד: נפתח בלי סיסמה, ההרשאות נקראות, פענוח מתקן את השמירה', async () => {
+    const enc = await Ops.encrypt(a, { permissions: { printing: false, copying: false } });
+    fs.writeFileSync(path.join(OUT, 'restricted.pdf'), enc);
+    const sec = await Ops.inspectSecurity(enc);
+    assert.strictEqual(sec.encrypted, true);
+    assert.strictEqual(sec.needsPassword, false);
+    assert.strictEqual(sec.permissions.printing, false);
+    assert.strictEqual(sec.permissions.copying, false);
+    assert.strictEqual(sec.permissions.modifying, true);
+    // זה הבאג הישן: בלי פענוח, עריכה ושמירה של קובץ כזה יצאו פגומות
+    const dec = await Ops.decrypt(enc, '');
+    const out = await Ops.buildDocument({ x: dec }, [{ src: 'x', index: 2 }, { src: 'x', index: 0 }], {}, {}, { fonts });
+    const d = await PDFDocument.load(out);
+    assert.strictEqual(d.getPageCount(), 2);
+    assert.strictEqual(d.isEncrypted, false);
+  });
+
+  await ok('בלי סיסמה ובלי הגבלות — הקובץ לא משתנה', async () => {
+    assert.strictEqual(await Ops.encrypt(a, {}), a);
+  });
+
+  /* ---------- חתימה דיגיטלית ---------- */
+  const p12 = DS.createSelfSigned({ name: 'קובי איתן', email: 'kobi@example.com', password: 'pw1234' });
+  const sigPng = 'data:image/png;base64,' + fs.readFileSync(path.join(__dirname, 'fixtures/signature.png')).toString('base64');
+
+  await ok('תעודה אישית: שם בעברית, סיסמה שגויה נדחית', () => {
+    const info = DS.p12Info(p12, 'pw1234');
+    assert.strictEqual(info.name, 'קובי איתן');
+    assert.strictEqual(info.selfSigned, true);
+    assert.strictEqual(info.expired, false);
+    assert.throws(() => DS.p12Info(p12, 'nope'), /שגויה/);
+  });
+
+  let signed;
+  await ok('חתימה דיגיטלית גלויה (עמוד רגיל + מסובב) ובדיקה', async () => {
+    const appearance = { fonts, signer: 'קובי איתן', date: '03/11/2026 10:30', reason: 'אישור החוזה', image: sigPng };
+    signed = await DS.signPdf(b, DS.p12Signer(p12, 'pw1234'), { pageIndex: 0, rect: { x: 560, y: 380, w: 220, h: 70 }, name: 'קובי איתן', reason: 'אישור החוזה', appearance });
+    fs.writeFileSync(path.join(OUT, 'signed.pdf'), signed);
+    const res = await DS.verify(signed);
+    assert.strictEqual(res.length, 1);
+    assert.strictEqual(res[0].intact, true, res[0].error);
+    assert.strictEqual(res[0].coversWholeFile, true);
+    assert.strictEqual(res[0].certSubject, 'קובי איתן');
+    assert.strictEqual(res[0].reason, 'אישור החוזה');
+    assert.strictEqual(res[0].selfSigned, true);
+    // החתימה היא עדכון מצטבר: הקובץ המקורי נשאר כמו שהוא בתחילת הקובץ החתום
+    assert.ok(Buffer.from(signed.subarray(0, b.length)).equals(Buffer.from(b)));
+  });
+
+  await ok('שינוי אחרי החתימה מתגלה', async () => {
+    const t = Buffer.from(signed);
+    t[200] ^= 1;
+    const res = await DS.verify(t);
+    assert.strictEqual(res[0].intact, false);
+    assert.match(res[0].error, /שונה/);
+  });
+
+  await ok('חתימה שנייה מצטברת שומרת על הראשונה', async () => {
+    const p12b = DS.createSelfSigned({ name: 'Second Signer', password: '' });
+    const twice = await DS.signPdf(signed, DS.p12Signer(p12b, ''), { pageIndex: 0, rect: null, name: 'Second Signer' });
+    fs.writeFileSync(path.join(OUT, 'signed-twice.pdf'), twice);
+    const res = await DS.verify(twice);
+    assert.strictEqual(res.length, 2);
+    assert.ok(res.every((r) => r.intact), JSON.stringify(res.map((r) => r.error)));
+    assert.deepStrictEqual(res.map((r) => r.coversWholeFile), [false, true]);
+    assert.strictEqual((await Ops.getFormFields(twice)).filter((f) => f.type === 'Signature').length, 2);
+  });
+
+  await ok('מסמך לא חתום — אין חתימות', async () => {
+    assert.deepStrictEqual(await DS.verify(a), []);
   });
 
   console.log(`\n${passed} בדיקות עברו. קבצי פלט: ${OUT}`);
