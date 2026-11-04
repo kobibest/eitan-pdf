@@ -414,8 +414,9 @@
       node.bytes = bytes;
       node.resources = resources;
       nodes.push(node);
-      let gs = { ctm: ctm0, Tc: 0, Tw: 0, Th: 1, TL: 0, font: null, fontRef: null, size: 0, rise: 0, Tr: 0, fill: [0, 0, 0] };
+      let gs = { ctm: ctm0, Tc: 0, Tw: 0, Th: 1, TL: 0, font: null, fontRef: null, fontObj: null, size: 0, rise: 0, Tr: 0, fill: [0, 0, 0], fillRaw: { op: 'g', args: [0] } };
       const stack = [];
+      const mc = []; // מחסנית תוכן מסומן (BMC/BDC): אינדקסי הפעולות הפתוחות
       let Tm = [1, 0, 0, 1, 0, 0], Tlm = [1, 0, 0, 1, 0, 0];
       const fonts = resources && lookup(doc, resources.get(N('Font')));
       const xobjs = resources && lookup(doc, resources.get(N('XObject')));
@@ -425,7 +426,9 @@
         if (!info) return glyphStart;
         if (!info.ok) problems.add(info.reason);
         let gi = glyphStart;
+        if (!info.seen) info.seen = new Set();
         for (const { code, raw } of codesOf(info, bytesStr)) {
+          info.seen.add(code);
           const w0 = (info.widths.has(code) ? info.widths.get(code) : info.dw) * info.scale;
           const isSpace = raw.length === 1 && code === 32;
           const tx = (w0 * gs.size + gs.Tc + (isSpace ? gs.Tw : 0)) * gs.Th;
@@ -443,7 +446,8 @@
             angle: Math.atan2(trm[1], trm[0]),
             size: Math.hypot(trm[2], trm[3]),
             advUser: Math.hypot(...[trm[0], trm[1]]) * w0,
-            font: info, fontRef: gs.fontRef, fill: gs.fill, Tr: gs.Tr,
+            font: info, fontRef: gs.fontRef, fontObj: gs.fontObj, fill: gs.fill, fillRaw: gs.fillRaw, Tr: gs.Tr,
+            mc: mc.length ? mc.slice() : null,
             gsize: gs.size, Tc: gs.Tc, Tw: isSpace ? gs.Tw : 0, Th: gs.Th,
           });
           gi++;
@@ -468,6 +472,7 @@
           case 'Tf': {
             const ref = fonts && a[0] && fonts.get(N(a[0].name));
             gs.fontRef = a[0] && a[0].name;
+            gs.fontObj = ref || null;
             gs.font = ref ? fontInfo(doc, ref, fontCache) : null;
             if (!gs.font) problems.add('font-missing');
             gs.size = a[1] || 0;
@@ -477,10 +482,14 @@
           case 'TD': gs.TL = -a[1]; Tlm = mul([1, 0, 0, 1, a[0], a[1]], Tlm); Tm = Tlm; break;
           case 'Tm': Tlm = a.slice(0, 6); Tm = Tlm; break;
           case 'T*': Tlm = mul([1, 0, 0, 1, 0, -gs.TL], Tlm); Tm = Tlm; break;
-          case 'g': gs.fill = [a[0], a[0], a[0]]; break;
-          case 'rg': gs.fill = a.slice(0, 3); break;
-          case 'k': { const [c, m, y, k] = a; gs.fill = [(1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k)]; break; }
+          case 'BMC': case 'BDC': mc.push(idx); break;
+          case 'EMC': mc.pop(); break;
+          case 'g': gs.fill = [a[0], a[0], a[0]]; gs.fillRaw = { op: 'g', args: a.slice(0, 1) }; break;
+          case 'rg': gs.fill = a.slice(0, 3); gs.fillRaw = { op: 'rg', args: a.slice(0, 3) }; break;
+          case 'k': { const [c, m, y, k] = a; gs.fill = [(1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k)]; gs.fillRaw = { op: 'k', args: a.slice(0, 4) }; break; }
+          case 'cs': gs.fillRaw = null; break;
           case 'sc': case 'scn': {
+            gs.fillRaw = null;
             const nums = a.filter((v) => typeof v === 'number');
             if (nums.length === 1) gs.fill = [nums[0], nums[0], nums[0]];
             else if (nums.length === 3) gs.fill = nums;
@@ -695,9 +704,175 @@
       size: Math.round(line.size * 100) / 100, bold: line.bold, color: hexc,
       angle: line.angle, u0: line.u0, u1: line.u1, v: line.v, box: line.box,
       ok: line.ok, mixed: line.mixed, fontName: line.fontName,
-      // אם המסמך כתוב באחד הפונטים שמגיעים עם התוכנה — ממשיכים בו
-      font: /alef/i.test(line.fontName) ? 'alef' : 'plex',
+      // ברירת המחדל: כותבים בפונט המקורי שמוטמע בקובץ (אם אפשר), כך שאין הבדל בין
+      // השורה הערוכה לשכנות שלה. fontAlt — הגיבוי כשחסרה בו אות.
+      font: line.ok && dominantFont(line) && fontEncoder(dominantFont(line)) ? 'original' : (/alef/i.test(line.fontName) ? 'alef' : 'plex'),
+      fontAlt: /alef/i.test(line.fontName) ? 'alef' : 'plex',
     };
+  }
+
+  /* ---------- כתיבה בפונט המקורי ---------- */
+
+  /** הפונט הנפוץ בשורה (לפי מספר האותיות, בלי ניקוד) */
+  function dominantFont(line) {
+    const counts = new Map();
+    for (const g of line.glyphs) if (!MARK_RE.test(g.u) && g.u.trim()) counts.set(g.font, (counts.get(g.font) || 0) + 1);
+    let best = null, n = 0;
+    for (const [f, c] of counts) if (c > n) { best = f; n = c; }
+    return best;
+  }
+
+  /**
+   * מפה מתו לקוד בפונט שמוטמע בקובץ. רק קודים שבטוח יש להם גליף: כאלה שכבר צוירו
+   * במסמך, או שיש להם רוחב מוגדר בפונט (בפונט חלקי, קוד בלי רוחב הוא בדרך כלל גליף חסר).
+   */
+  function fontEncoder(info) {
+    if (info.encoder !== undefined) return info.encoder;
+    let enc = null;
+    if (info.ok && info.subtype !== 'Type3') {
+      const map = new Map();
+      const add = (code) => {
+        const u = unicodeOf(info, code);
+        if (!u || u === '�' || [...u].length !== 1 || map.has(u)) return;
+        const seen = info.seen && info.seen.has(code);
+        const w = info.widths.get(code);
+        if (seen || info.stdCodes || (w != null && (w > 0 || u === ' '))) map.set(u, code);
+      };
+      if (info.seen) for (const c of info.seen) add(c);
+      if (info.toU) for (const hx of info.toU.keys()) add(parseInt(hx, 16));
+      for (const c of info.widths.keys()) add(c);
+      if (map.size) enc = { map };
+    }
+    info.encoder = enc;
+    return enc;
+  }
+
+  /**
+   * כותב לשורה בפונט המקורי שלה, עם אותו ריווח אותיות, ריווח מילים וכיווץ אופקי.
+   * מחזיר null אם אי אפשר (פונט לא מוכר, Type3). measure מחזיר null אם חסרה אות.
+   */
+  function originalWriter(line, lines) {
+    const info = line.ok ? dominantFont(line) : null;
+    if (!info) return null;
+    const enc = fontEncoder(info);
+    if (!enc) return null;
+    const mine = line.glyphs.filter((g) => g.font === info);
+    const sample = mine.find((g) => g.w0 > 0 && g.u.trim()) || mine[0];
+    if (!sample || !sample.fontObj || !sample.size) return null;
+    const k = sample.gsize ? sample.size / sample.gsize : 1; // קנה מידה של המטריצות
+    const Th = sample.w0 > 0 ? sample.advUser / sample.w0 / sample.size : sample.Th;
+    const sp = mine.find((g) => g.u === ' ' && g.raw.length === 1);
+    // פער בין מילים כשאין גליף רווח: לפי הפערים בשורה המקורית
+    const items = line.glyphs.filter((g) => !MARK_RE.test(g.u)).map((g) => {
+      const c = Math.cos(-line.angle), s = Math.sin(-line.angle);
+      return { u: g.x * c - g.y * s, adv: g.advUser, ch: g.u };
+    }).sort((a, b) => a.u - b.u);
+    const gaps = [];
+    for (let j = 1; j < items.length; j++) {
+      const gap = items[j].u - (items[j - 1].u + items[j - 1].adv);
+      if (gap > line.size * 0.12) gaps.push(gap);
+      else if (items[j - 1].ch === ' ') gaps.push(items[j - 1].adv + Math.max(0, gap));
+    }
+    gaps.sort((a, b) => a - b);
+    const wordGap = (gaps.length ? gaps[Math.floor(gaps.length / 2)] : line.size * 0.25) / line.size;
+    // יוצרים ששומרים סוגריים "לוגיים" (LibreOffice): הגליף של ")" מסומן כ-"("
+    const swap = !!(lines && pageSwaps(lines));
+
+    const plan = (visual, size) => {
+      const s = size / line.size;
+      const Tc = sample.Tc * k * s, Tw = sp ? sp.Tw * k * s : 0;
+      const out = []; // קודים ומספרי היסט ל-TJ
+      let width = 0;
+      for (let ch of Array.from(visual)) {
+        if (swap && PAIRS[ch]) ch = PAIRS[ch];
+        const code = enc.map.get(ch);
+        if (code == null) {
+          if (/\s/.test(ch)) {
+            const gap = wordGap * size;
+            out.push(-(gap * 1000) / (size * Th));
+            width += gap;
+            continue;
+          }
+          return null;
+        }
+        const w0 = (info.widths.has(code) ? info.widths.get(code) : info.dw) * info.scale;
+        const isSpace = info.bytes === 1 && code === 32;
+        out.push({ code });
+        width += (w0 * size + Tc + (isSpace ? Tw : 0)) * Th;
+      }
+      return { out, width, Tc, Tw };
+    };
+
+    return {
+      info, bold: !!info.bold, fill: sample.fillRaw, Tr: sample.Tr,
+      /** רוחב השורה ביחידות PDF, או null אם חסרה אות בפונט */
+      measure(visual, size) {
+        if (MARK_RE.test(visual) || /[\u0600-\u06FF]/.test(visual)) return null; // ניקוד וערבית — דרך fontkit
+        const p = plan(visual, size);
+        return p ? p.width : null;
+      },
+      /** ציור שורה חזותית בנקודה (x,y) על קו הבסיס, בזווית angle */
+      draw(doc, page, visual, x, y, o) {
+        const p = plan(visual, o.size);
+        if (!p) return false;
+        const fontName = resourceName(doc, page, sample.fontRef, sample.fontObj);
+        const arr = PDFLib.PDFArray.withContext(doc.context);
+        let cur = [];
+        const flush = () => {
+          if (!cur.length) return;
+          const hx = cur.map((c) => c.toString(16).padStart(info.bytes * 2, '0')).join('');
+          arr.push(PDFLib.PDFHexString.of(hx));
+          cur = [];
+        };
+        for (const v of p.out) {
+          if (typeof v === 'number') { flush(); arr.push(PDFNumber.of(Math.round(v * 1000) / 1000)); } else cur.push(v.code);
+        }
+        flush();
+        const Op = PDFLib.PDFOperator;
+        const nums = (xs) => xs.map((v) => PDFNumber.of(Math.round(v * 100000) / 100000));
+        const c = Math.cos(o.angle || 0), s = Math.sin(o.angle || 0);
+        const ops = [Op.of('q'), Op.of('BT'), Op.of('Tf', [N(fontName), PDFNumber.of(o.size)])];
+        if (p.Tc) ops.push(Op.of('Tc', nums([p.Tc])));
+        if (p.Tw) ops.push(Op.of('Tw', nums([p.Tw])));
+        if (Math.abs(Th - 1) > 0.001) ops.push(Op.of('Tz', nums([Th * 100])));
+        const fill = o.fill || { op: 'rg', args: [0, 0, 0] };
+        ops.push(Op.of(fill.op, nums(fill.args)));
+        if (o.fakeBold) {
+          // הדגשה מלאכותית כמו ב-Word: מילוי + קו מתאר דק באותו צבע
+          ops.push(Op.of(fill.op.toUpperCase(), nums(fill.args)), Op.of('w', nums([o.size * 0.03])), Op.of('Tr', [PDFNumber.of(2)]));
+        }
+        ops.push(Op.of('Tm', nums([c, s, -s, c, x, y])), Op.of('TJ', [arr]), Op.of('ET'), Op.of('Q'));
+        page.pushOperators(...ops);
+        return true;
+      },
+    };
+  }
+
+  /** שם המשאב של הפונט במילון הפונטים של העמוד — הקיים אם יש, אחרת שם חדש ולא בולט */
+  function resourceName(doc, page, preferred, fontObj) {
+    const { Font } = page.node.normalizedEntries();
+    for (const [k, v] of Font.entries()) if (v === fontObj) return k.decodeText();
+    let name = preferred || 'F1';
+    for (let j = 1; Font.get(N(name)); j++) name = (preferred || 'F') + j;
+    Font.set(N(name), fontObj);
+    return name;
+  }
+
+  /**
+   * עותקים נוספים של אותה שורה שצריך למחוק יחד איתה: שכבת טקסט נסתרת (OCR, Tr 3)
+   * ו"הדגשה" שנעשתה בציור כפול עם היסט קטן. אחרת חיפוש או העתקה מחזירים את הטקסט הישן.
+   */
+  function shadowGlyphs(glyphs, line) {
+    const own = new Set(line.glyphs);
+    const c = Math.cos(-line.angle), s = Math.sin(-line.angle);
+    const [x0, y0, x1, y1] = line.box;
+    const pad = (y1 - y0) * 0.1;
+    return glyphs.filter((g) => {
+      if (own.has(g) || !g.font.ok || Math.abs(g.angle - line.angle) > 0.02) return false;
+      if (Math.abs(g.x * s + g.y * c - line.v) > line.size * 0.35) return false;
+      const cx = (g.bbox[0] + g.bbox[2]) / 2, cy = (g.bbox[1] + g.bbox[3]) / 2;
+      return cx >= x0 - 0.5 && cx <= x1 + 0.5 && cy >= y0 + pad && cy <= y1 - pad;
+    });
   }
 
   /* ---------- טקסט לוגי ---------- */
@@ -828,7 +1003,104 @@
     return out;
   }
 
-  let editSeq = 0;
+  /** אחרי פעולה שכל הגליפים שלה נמחקו — האם אפשר להשמיט אותה לגמרי (אף ציור לא נשען על המיקום שהיא קידמה) */
+  function droppable(ops, k) {
+    for (let j = k + 1; j < ops.length; j++) {
+      const op = ops[j].op;
+      if (op === 'Tj' || op === 'TJ') return false;
+      if (op === 'Td' || op === 'TD' || op === 'Tm' || op === 'T*' || op === 'ET' || op === 'BT' || op === "'" || op === '"') return true;
+    }
+    return true;
+  }
+
+  const TEXT_KEYS = ['ActualText', 'Alt', 'E'];
+  /** זוגות מפתח/ערך של מילון שפוענח מזרם התוכן */
+  function dictPairs(d) {
+    const out = [];
+    for (let j = 0; j + 1 < d.length; j += 2) if (d[j] && d[j].name != null) out.push([d[j].name, d[j + 1]]);
+    return out;
+  }
+
+  /**
+   * מילוני Properties של תוכן מסומן (BDC) שעוטפים את הגליפים שנמחקו: ActualText/Alt/E
+   * מחזיקים עותק של הטקסט הישן (העתקה, חיפוש, הקראה). מוחקים אותם ומשאירים MCID.
+   * מחזיר את רשימת ההחלפות ואת ה-MCID שנפגעו.
+   */
+  function scrubMarkedContent(doc, node, opIdxs) {
+    const reps = [];
+    const mcids = new Set();
+    for (const k of opIdxs) {
+      const o = node.ops[k];
+      if (!o || o.op !== 'BDC' || !o.args[0] || o.args[0].name == null) continue;
+      const tag = o.args[0].name;
+      let pairs = null;
+      const p = o.args[1];
+      if (p && p.dict) pairs = dictPairs(p.dict);
+      else if (p && p.name != null && node.resources) {
+        const props = lookup(doc, node.resources.get(N('Properties')));
+        const d = props instanceof PDFDict ? lookup(doc, props.get(N(p.name))) : null;
+        if (d instanceof PDFDict) {
+          pairs = [...d.entries()].map(([kk, v]) => {
+            const val = lookup(doc, v);
+            return [kk.decodeText(), val instanceof PDFNumber ? val.asNumber() : null];
+          });
+        }
+      }
+      if (!pairs) continue;
+      const mcid = pairs.find(([kk]) => kk === 'MCID');
+      if (mcid && typeof mcid[1] === 'number') mcids.add(mcid[1]);
+      if (!pairs.some(([kk]) => TEXT_KEYS.includes(kk))) continue;
+      const text = mcid && typeof mcid[1] === 'number' ? `/${tag} <</MCID ${mcid[1]}>> BDC` : `/${tag} BMC`;
+      reps.push({ start: o.start, end: o.end, text });
+    }
+    return { reps, mcids };
+  }
+
+  /**
+   * עץ המבנה (Tagged PDF): לאלמנט שמכיל את התוכן שנמחק יכול להיות ActualText/Alt עם
+   * הטקסט הישן. מוחקים אותם מהאלמנט ומההורים שלו.
+   */
+  function scrubStructTree(doc, pageRef, mcids) {
+    if (!mcids.size) return;
+    const root = lookup(doc, doc.catalog.get(N('StructTreeRoot')));
+    if (!(root instanceof PDFDict)) return;
+    const seen = new Set();
+    const hits = new Set();
+    const visit = (el, pg, chain, depth) => {
+      if (!(el instanceof PDFDict) || seen.has(el) || depth > 300) return;
+      seen.add(el);
+      const myPg = el.get(N('Pg')) || pg;
+      const K = lookup(doc, el.get(N('K')));
+      const kids = K instanceof PDFArray ? K.asArray() : K != null ? [K] : [];
+      let hit = false;
+      for (const kid of kids) {
+        const v = lookup(doc, kid);
+        if (v instanceof PDFNumber) { if (myPg === pageRef && mcids.has(v.asNumber())) hit = true; continue; }
+        if (!(v instanceof PDFDict)) continue;
+        const type = nameOf(doc, v.get(N('Type')));
+        if (type === 'MCR') {
+          const kp = v.get(N('Pg')) || myPg;
+          if (kp === pageRef && mcids.has(num(doc, v.get(N('MCID')), -1))) hit = true;
+        } else if (type !== 'OBJR') visit(v, myPg, chain.concat([el]), depth + 1);
+      }
+      if (hit) for (const x of chain.concat([el])) hits.add(x);
+    };
+    visit(root, null, [], 0);
+    for (const el of hits) {
+      const isFigure = /^(Figure|Formula)$/.test(nameOf(doc, el.get(N('S'))) || '');
+      el.delete(N('ActualText'));
+      el.delete(N('E'));
+      if (!isFigure) el.delete(N('Alt'));
+    }
+  }
+
+  /** שם פנוי במילון: base, ואם תפוס — base1, base2... */
+  function freeName(dict, base, taken) {
+    let name = base;
+    for (let j = 1; (dict && dict.get(N(name))) || (taken && taken.has(name)); j++) name = base + j;
+    if (taken) taken.add(name);
+    return name;
+  }
 
   /**
    * מחיקת גליפים מהעמוד. glyphs: הגליפים מ-analyzePage שצריך למחוק.
@@ -853,6 +1125,20 @@
     const reps = new Map(); // nodeId → [{start,end,text}]
     const addRep = (id, r) => { if (!reps.has(id)) reps.set(id, []); reps.get(id).push(r); };
 
+    // תוכן מסומן שעוטף את הגליפים שנמחקו
+    const mcOps = new Map(); // nodeId → Set(op)
+    for (const g of toRemove) {
+      if (!g.mc) continue;
+      if (!mcOps.has(g.node)) mcOps.set(g.node, new Set());
+      for (const k of g.mc) mcOps.get(g.node).add(k);
+    }
+    let pageMcids = new Set();
+    for (const [nodeId, set] of mcOps) {
+      const { reps: r, mcids } = scrubMarkedContent(doc, nodes[nodeId], set);
+      r.forEach((x) => addRep(nodeId, x));
+      if (nodeId === 0) pageMcids = mcids;
+    }
+
     for (const [nodeId, opsMap] of byNode) {
       const node = nodes[nodeId];
       for (const [opIdx, set] of opsMap) {
@@ -865,6 +1151,11 @@
         else if (o.op === "'") { elems = [o.args[0]]; prefix = 'T* '; }
         else if (o.op === '"') { elems = [o.args[2]]; prefix = `${fmt(o.args[0])} Tw ${fmt(o.args[1])} Tc T* `; }
         else continue;
+        // כל הגליפים של הפעולה נמחקו: משמיטים אותה (בלי מערך היסטים ריק שנשאר בזרם)
+        if (set.size >= gmap.size && droppable(node.ops, opIdx)) {
+          addRep(nodeId, { start: o.start, end: o.end, text: prefix.trim() });
+          continue;
+        }
         const tj = rebuildTJ(elems, gmap, set, info);
         addRep(nodeId, { start: o.start, end: o.end, text: prefix + serialize(tj) + ' TJ' });
       }
@@ -879,6 +1170,7 @@
     // מעבדים מהעמוק אל השורש
     const order = [...changed].sort((a, b) => b - a);
     const newNames = new Map(); // nodeId → { name, ref }
+    const takenNames = new Map(); // parentId → Set
     for (const id of order) {
       const node = nodes[id];
       // הפניות ל-XObject של ילדים שהשתנו
@@ -912,9 +1204,14 @@
         else if (!dict.get(N('Resources')) && node.resources) dict.set(N('Resources'), node.resources);
         const stream = doc.context.flateStream(bytes, Object.fromEntries([...dict.entries()].map(([k, v]) => [k.decodeText(), v])));
         const ref = doc.context.register(stream);
-        newNames.set(id, { name: `EPedit${++editSeq}_${id}`, ref });
+        // שם רגיל, בסגנון השמות שכבר בקובץ (לא שם שמסגיר עריכה)
+        const parent = nodes[node.parent];
+        const xoDict = parent.resources && lookup(doc, parent.resources.get(N('XObject')));
+        if (!takenNames.has(node.parent)) takenNames.set(node.parent, new Set());
+        newNames.set(id, { name: freeName(xoDict instanceof PDFDict ? xoDict : null, node.name, takenNames.get(node.parent)), ref });
       }
     }
+    scrubStructTree(doc, page.ref, pageMcids);
     return { removed: toRemove.length };
   }
 
@@ -928,6 +1225,7 @@
 
   return {
     parseOps, analyzePage, groupLines, lineText, inferAlign, findLine, editFromLine, removeGlyphs, glyphsInBoxes, parseToUnicode,
+    originalWriter, shadowGlyphs, dominantFont, fontEncoder,
     // עזרים לקריאת מבנה העמוד (משמשים גם את ההמרה ל-Word)
     lookup, num, nameOf, streamBytes, getResources, pageResources, pageContentBytes,
   };

@@ -372,6 +372,88 @@ async function makeForm() {
     }
   });
 
+  await ok('עריכה בלי עקבות: פונט מקורי, ActualText, שכבה נסתרת, עץ מבנה, תמונה ממוזערת ואובייקטים יתומים', async () => {
+    const d = await PDFDocument.create();
+    const helv = await d.embedFont(StandardFonts.Helvetica);
+    const pg = d.addPage([595, 842]);
+    pg.node.set(P.PDFName.of('Resources'), d.context.obj({ Font: { F1: helv.ref } }));
+    const content = [
+      '/P <</ActualText (Secret old line) /MCID 0>> BDC',
+      'BT /F1 12 Tf 0 0 0 1 k 60 700 Td (Secret old line) Tj ET EMC',
+      'q BT 3 Tr /F1 12 Tf 60 700 Td (Secret old line) Tj ET Q', // שכבת OCR נסתרת באותו מקום
+      'BT /F1 12 Tf 60 650 Td (Keep me) Tj ET',
+    ].join('\n');
+    pg.node.set(P.PDFName.of('Contents'), d.context.register(d.context.flateStream(content)));
+    pg.node.set(P.PDFName.of('Thumb'), d.context.register(d.context.flateStream('Secret thumbnail')));
+    pg.node.set(P.PDFName.of('StructParents'), P.PDFNumber.of(0));
+    const elem = d.context.obj({ Type: 'StructElem', S: 'P', Pg: pg.ref, K: 0, ActualText: P.PDFString.of('Secret old line') });
+    const root = d.context.obj({ Type: 'StructTreeRoot', K: d.context.register(elem) });
+    d.catalog.set(P.PDFName.of('StructTreeRoot'), d.context.register(root));
+    const src = await d.save();
+
+    const e = await makeEdit(src, 0, 0, 'Brand new text');
+    assert.strictEqual(e.font, 'original');
+    const warnings = [];
+    const out = await Ops.buildDocument({ s: src }, [{ src: 's', index: 0 }], { 's:0': [e] }, {}, { fonts, editFonts, onWarning: (w) => warnings.push(w) });
+    assert.deepStrictEqual(warnings, []);
+
+    // שום עותק של הטקסט הישן בשום אובייקט בקובץ (כולל זרמים מפוענחים)
+    const od = await PDFDocument.load(out);
+    const dump = [];
+    for (const [, obj] of od.context.enumerateIndirectObjects()) {
+      if (obj instanceof P.PDFRawStream) {
+        let b;
+        try { b = P.decodePDFRawStream(obj).decode(); } catch (x) { b = obj.contents; }
+        dump.push(obj.dict.toString(), Buffer.from(b).toString('latin1'));
+      } else dump.push(obj.toString());
+    }
+    const all = dump.join('\n');
+    assert.ok(!/Secret/.test(all) && !/536563726574/i.test(all), 'נשאר עותק של הטקסט הישן');
+    assert.ok(/<<\s*\/MCID 0\s*>>\s*BDC/.test(all), 'ה-MCID נשמר');
+    assert.ok(!od.getPage(0).node.get(P.PDFName.of('Thumb')));
+
+    // השורה החדשה: באותו פונט, באותו מרחב צבע (CMYK), והשורה השנייה לא זזה
+    const an = T.analyzePage(od, od.getPage(0));
+    const lines = T.groupLines(an.glyphs);
+    const nl = lines.find((l) => T.lineText(l).text === 'Brand new text');
+    assert.ok(nl, lines.map((l) => T.lineText(l).text).join('|'));
+    assert.strictEqual(nl.fontName, 'Helvetica');
+    assert.strictEqual(nl.glyphs[0].fillRaw.op, 'k');
+    assert.ok(Math.abs(nl.u0 - 60) < 0.01 && Math.abs(nl.v - 700) < 0.01);
+    assert.ok(lines.some((l) => T.lineText(l).text === 'Keep me'));
+    assert.ok(!an.glyphs.some((g) => g.Tr === 3), 'השכבה הנסתרת נמחקה');
+    const pdoc = await pdfjs.getDocument({ data: new Uint8Array(out), verbosity: 0 }).promise;
+    const tc = await (await pdoc.getPage(1)).getTextContent();
+    assert.ok(!tc.items.some((it) => /Secret/.test(it.str)));
+  });
+
+  await ok('עריכה בפונט המקורי: אותו פונט, הדגשה מלאכותית, וגיבוי כשחסרה אות', async () => {
+    const src = FIX('הסכם שכירות.pdf');
+    const e = await makeEdit(src, 0, 3, 'השוכר ישלם 4,500 ש"ח (כולל מע"מ)');
+    assert.strictEqual(e.font, 'original');
+    const out = await Ops.buildDocument({ s: src }, [{ src: 's', index: 0 }], { 's:0': [e] }, {}, { fonts, editFonts });
+    const d = await PDFDocument.load(out);
+    const lines = T.groupLines(T.analyzePage(d, d.getPage(0)).glyphs);
+    const L = lines.find((l) => T.lineText(l, lines).text === e.text);
+    assert.ok(L && L.fontName === e.fontName, L && L.fontName);
+    // הקובץ לא גדל: אין פונט חדש ואין עותק של העמוד הישן
+    assert.ok(out.length < src.length * 1.05, out.length + ' > ' + src.length);
+
+    // הדגשה בפונט רגיל: Tr 2 באותו פונט
+    const b = await makeEdit(src, 0, 3, 'שורה מודגשת', { bold: true, restyled: true });
+    const outB = await Ops.buildDocument({ s: src }, [{ src: 's', index: 0 }], { 's:0': [b] }, {}, { fonts, editFonts });
+    const dB = await PDFDocument.load(outB);
+    const gB = T.analyzePage(dB, dB.getPage(0)).glyphs.filter((g) => g.Tr === 2);
+    assert.ok(gB.length && gB.every((g) => g.font.name === e.fontName));
+
+    // אות שאין בפונט החלקי (לטינית) → IBM Plex, עם אזהרה
+    const w = [];
+    const x = await makeEdit(src, 0, 3, 'Quiz XYZ');
+    const outX = await Ops.buildDocument({ s: src }, [{ src: 's', index: 0 }], { 's:0': [x] }, {}, { fonts, editFonts, onWarning: (m) => w.push(m) });
+    assert.ok(w.length === 1 && /לא קיימות בפונט המקורי/.test(w[0]));
+    assert.ok((await linesOf(outX, 0)).some((l) => l.text === 'Quiz XYZ'));
+  });
+
   /* ---------- אבטחה ---------- */
   await ok('הצפנה בסיסמה: בלי סיסמה/סיסמה שגויה נכשל, סיסמה נכונה פותחת', async () => {
     const enc = await Ops.encrypt(a, { userPassword: 'סוד123', ownerPassword: 'owner' });

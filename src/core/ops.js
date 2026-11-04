@@ -14,7 +14,7 @@
 })(typeof self !== 'undefined' ? self : this, function (PDFLib, fontkit, H, TE) {
   'use strict';
 
-  const { PDFDocument, PDFName, PDFHexString, PDFDict, PDFStream, degrees, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix, StandardFonts, LineCapStyle } = PDFLib;
+  const { PDFDocument, PDFName, PDFHexString, PDFDict, PDFStream, PDFRef, PDFArray, degrees, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix, StandardFonts, LineCapStyle } = PDFLib;
 
   const LOAD_OPTS = { ignoreEncryption: true, updateMetadata: false };
 
@@ -321,25 +321,38 @@
   async function applyTextEdits(doc, page, edits, o) {
     // שורה משתנה אם הטקסט השתנה, או שהמשתמש שינה עיצוב (גודל, מודגש, צבע, יישור, פונט)
     const changed = edits.filter((e) => e.text !== e.original || e.restyled);
-    if (!changed.length) return;
+    if (!changed.length) return 0;
     const analysis = TE.analyzePage(doc, page);
     const lines = TE.groupLines(analysis.glyphs);
-    const toRemove = [];
+    const toRemove = new Set();
     const fallback = [];
+    const found = new Map();
     for (const e of changed) {
       const L = TE.findLine(lines, e);
-      if (L && L.ok) toRemove.push(...L.glyphs);
-      else {
+      if (L && L.ok) {
+        found.set(e, L);
+        L.glyphs.forEach((g) => toRemove.add(g));
+        // עותקים נסתרים או כפולים של אותה שורה (שכבת OCR, הדגשה בציור כפול)
+        TE.shadowGlyphs(analysis.glyphs, L).forEach((g) => toRemove.add(g));
+      } else {
         fallback.push(e);
         if (o.onWarning) o.onWarning(L ? `השורה "${e.original}" כתובה בפונט שלא ניתן למחוק ממנו, ולכן היא כוסתה במקום להימחק` : `השורה "${e.original}" לא נמצאה בעמוד — היא כוסתה במקום להימחק`);
       }
     }
-    if (toRemove.length) TE.removeGlyphs(doc, page, analysis, toRemove);
+    // כתיבה בפונט המקורי: מכינים לפני המחיקה (הניתוח מתייחס לעמוד כפי שהיה)
+    const writers = new Map();
+    for (const [e, L] of found) if (e.font === 'original') writers.set(e, TE.originalWriter(L, lines));
+    if (toRemove.size) TE.removeGlyphs(doc, page, analysis, [...toRemove]);
+    // תמונה ממוזערת שמורה ונתונים פרטיים של תוכנת המקור מציגים את העמוד כפי שהיה
+    page.node.delete(PDFName.of('Thumb'));
+    page.node.delete(PDFName.of('PieceInfo'));
 
     const cache = new Map();
     const fontFor = async (e) => {
-      const fam = (o.editFonts && o.editFonts[e.font === 'alef' ? 'alef' : 'plex']) || o.fonts;
-      const key = (e.font === 'alef' ? 'alef' : 'plex') + (e.bold ? 'b' : '');
+      const fam0 = e.font === 'original' ? (e.fontAlt || 'plex') : e.font;
+      const famKey = fam0 === 'alef' ? 'alef' : 'plex';
+      const fam = (o.editFonts && o.editFonts[famKey]) || o.fonts;
+      const key = famKey + (e.bold ? 'b' : '');
       if (!cache.has(key)) cache.set(key, await H.embedFont(doc, e.bold && fam.bold ? fam.bold : fam.regular, fontkit));
       return cache.get(key);
     };
@@ -351,9 +364,33 @@
         page.drawRectangle({ x: x0 - 1, y: y0 - 1, width: x1 - x0 + 2, height: y1 - y0 + 2, color: hexToRgb(e.bg || '#ffffff') });
       }
       if (!e.text.trim()) continue; // שורה שנמחקה
-      const font = await fontFor(e);
       const size = e.size;
       const lines = String(e.text).split(/\r?\n/);
+      const fill = fillOf(e, found.get(e));
+
+      // בפונט המקורי: אותו גליף, ריווח וצבע כמו בשאר המסמך
+      const W = writers.get(e);
+      if (W) {
+        const rows = lines.map((logical) => {
+          const visual = H.toVisual(logical, H.hasRTL(logical) ? 'rtl' : 'ltr');
+          return { visual, w: W.measure(visual, size) };
+        });
+        const canUnbold = !(W.bold && !e.bold);
+        if (rows.every((r) => r.w != null) && canUnbold) {
+          rows.forEach(({ visual, w }, k) => {
+            let u = e.u0;
+            if (e.align === 'right') u = e.u1 - w;
+            else if (e.align === 'center') u = (e.u0 + e.u1) / 2 - w / 2;
+            const [x, y] = at(u, e.v - k * size * 1.25);
+            W.draw(doc, page, visual, x, y, { size, angle: e.angle, fill: fill.raw, fakeBold: e.bold && !W.bold });
+          });
+          continue;
+        }
+        if (o.onWarning) o.onWarning(canUnbold
+          ? `בשורה "${e.text}" יש אותיות שלא קיימות בפונט המקורי, ולכן היא נכתבה בפונט ${e.fontAlt === 'alef' ? 'Alef' : 'IBM Plex'}`
+          : `הפונט המקורי של השורה "${e.text}" מודגש, ולכן היא נכתבה בפונט ${e.fontAlt === 'alef' ? 'Alef' : 'IBM Plex'} בלי הדגשה`);
+      }
+      const font = await fontFor(e);
       lines.forEach((logical, k) => {
         const dir = H.hasRTL(logical) ? 'rtl' : 'ltr';
         const visual = H.toVisual(logical, dir);
@@ -363,11 +400,61 @@
         else if (e.align === 'center') u = (e.u0 + e.u1) / 2 - w / 2;
         const [x, y] = at(u, e.v - k * size * 1.25);
         H.drawVisualLine(page, visual, x, y, {
-          font, size, color: hexToRgb(e.color),
+          font, size, color: fill.color,
           rotate: e.angle ? PDFLib.radians(e.angle) : undefined,
         });
       });
     }
+    return changed.length;
+  }
+
+  /**
+   * צבע השורה החדשה. אם המשתמש לא שינה צבע — אותו צבע בדיוק ובאותו מרחב צבע כמו
+   * המקור (אפור/CMYK/RGB), ולא המרה ל-RGB שמשנה גוון בהדפסה ונראית בבדיקת הקובץ.
+   */
+  function fillOf(e, L) {
+    const raw = L && L.glyphs.length ? TE.dominantFont(L) && (L.glyphs.find((g) => g.font === TE.dominantFont(L)) || L.glyphs[0]).fillRaw : null;
+    const same = L && raw && e.color && e.color.toLowerCase() === hexOf(L.color);
+    if (same) {
+      const a = raw.args;
+      if (raw.op === 'g') return { raw, color: PDFLib.grayscale(a[0]) };
+      if (raw.op === 'k') return { raw, color: PDFLib.cmyk(a[0], a[1], a[2], a[3]) };
+      return { raw, color: rgb(a[0], a[1], a[2]) };
+    }
+    const c = hexToRgb(e.color || '#000000');
+    return { raw: { op: 'rg', args: [c.red, c.green, c.blue] }, color: c };
+  }
+  const hexOf = (rgbArr) => '#' + rgbArr.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
+
+  /**
+   * מחיקת אובייקטים שאף אחד לא מפנה אליהם. pdf-lib כותב לקובץ גם אובייקטים "יתומים",
+   * ולכן בלי זה זרם התוכן הישן (עם השורה המקורית) היה נשאר בקובץ ונשלף בכלי ניתוח.
+   */
+  function pruneUnreachable(doc) {
+    const ctx = doc.context;
+    const keep = new Set();
+    const queue = [];
+    const visit = (o) => {
+      if (o instanceof PDFRef) {
+        if (keep.has(o)) return;
+        keep.add(o);
+        const v = ctx.lookup(o);
+        if (v) queue.push(v);
+      } else if (o) queue.push(o);
+    };
+    const t = ctx.trailerInfo;
+    [t.Root, t.Info, t.Encrypt].forEach(visit);
+    while (queue.length) {
+      const v = queue.pop();
+      if (v instanceof PDFDict) for (const [, x] of v.entries()) visit(x);
+      else if (v instanceof PDFArray) for (const x of v.asArray()) visit(x);
+      else if (v && v.dict instanceof PDFDict) for (const [, x] of v.dict.entries()) visit(x);
+    }
+    let removed = 0;
+    for (const [ref] of ctx.enumerateIndirectObjects()) {
+      if (!keep.has(ref)) { ctx.delete(ref); removed++; }
+    }
+    return removed;
   }
 
   /* ---------- טפסים ---------- */
@@ -588,6 +675,7 @@
     }
 
     const fonts = await loadFonts(doc, o.fonts);
+    let editedLines = 0;
     for (let i = 0; i < pages.length; i++) {
       const p = pages[i];
       const pg = outPages[i];
@@ -596,7 +684,7 @@
       const list = (stamps || {})[key];
       if (list && list.length) {
         const edits = list.filter((s) => s.type === 'edit');
-        if (edits.length) await applyTextEdits(doc, pg, edits, o);
+        if (edits.length) editedLines += await applyTextEdits(doc, pg, edits, o);
         const rest = list.filter((s) => s.type !== 'edit');
         if (rest.length) await drawStamps(doc, pg, rest, fonts);
       }
@@ -604,6 +692,12 @@
     if (o.watermark && o.watermark.text) applyWatermark(doc, fonts, o.watermark);
     if (o.pageNumbers && o.pageNumbers.enabled) applyPageNumbers(doc, fonts, o.pageNumbers);
     doc.setProducer('איתןPDF');
+    // אחרי עריכת טקסט: התוכן הישן לא נשאר בקובץ אפילו כאובייקט נסתר
+    // (flush קודם: pdf-lib מטמיע פונטים רק בשמירה, וכך גם פונט שלא נוצל לא נשאר בקובץ)
+    if (editedLines) {
+      await doc.flush();
+      pruneUnreachable(doc);
+    }
     return doc.save();
   }
 
@@ -686,6 +780,6 @@
   return {
     load, parseRanges, chunk, buildDocument, splitDocument, imagesToPdf, getFormFields, fillForm,
     viewSize, withViewFrame, pageCount, hexToRgb, StandardFonts, applyTextEdits, MARK_PATHS, MARK_STROKE,
-    inspectSecurity, checkPassword, decrypt, encrypt, PERMISSION_KEYS, viewRectToPage, digiSigLines, renderDigiSig, loadFonts,
+    inspectSecurity, checkPassword, decrypt, encrypt, PERMISSION_KEYS, pruneUnreachable, viewRectToPage, digiSigLines, renderDigiSig, loadFonts,
   };
 });

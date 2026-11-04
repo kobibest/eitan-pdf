@@ -1181,6 +1181,19 @@ function sampleBg(ctx, rect) {
   }
 }
 
+/** שם משפחת הפונט כפי שהמערכת מכירה אותו, מתוך שם הפונט ב-PDF (ABCDEF+TimesNewRomanPS-BoldMT → Times New Roman) */
+function systemFamily(pdfName) {
+  return String(pdfName || '').replace(/^[A-Z]{6}\+/, '').replace(/[,-].*$/, '').replace(/(PS)?(MT)?$/, '')
+    .replace(/(Regular|Bold|Italic|Oblique|Medium|Light)+$/, '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/['"\\]/g, '').trim();
+}
+
+/** הפונט של התצוגה המקדימה: בפונט המקורי — אותו פונט אם מותקן במחשב, אחרת IBM Plex */
+function cssFont(it) {
+  if (it.font === 'alef') return "'Alef'";
+  if (it.font === 'original' && systemFamily(it.fontName)) return `'${systemFamily(it.fontName)}', 'Plex'`;
+  return "'Plex'";
+}
+
 /** עיצוב אלמנט שורה (תצוגה מקדימה או עורך) לפי פריט העריכה */
 function styleLine(wrap, inner, ctx, it, g) {
   const sizePx = it.size * ctx.scale;
@@ -1191,7 +1204,7 @@ function styleLine(wrap, inner, ctx, it, g) {
     justifyContent: it.align === 'right' ? 'flex-end' : it.align === 'center' ? 'center' : 'flex-start',
   });
   Object.assign(inner.style, {
-    fontFamily: it.font === 'alef' ? "'Alef'" : "'Plex'", fontWeight: it.bold ? '700' : '400',
+    fontFamily: cssFont(it), fontWeight: it.bold ? '700' : '400',
     fontSize: sizePx + 'px', lineHeight: lh + 'px', color: it.color, background: it.bg || '#ffffff',
   });
   inner.dir = window.HebrewPDF.hasRTL(it.text || it.original) ? 'rtl' : 'ltr';
@@ -1368,15 +1381,18 @@ function editPanel(panel) {
   if (sel && ctx) {
     const grp = h('<div class="group"><h2>עיצוב השורה</h2><div class="tl-style"></div></div>');
     panel.append(grp);
-    pageLines(ctx.p).then(({ base }) => {
+    pageLines(ctx.p).then(({ lines, base }) => {
       const b = base[sel.idx];
       if (!b) return;
       const it = editsOf(sel.key).find((x) => x.lineIdx === sel.idx) || b;
       const box = grp.querySelector('.tl-style');
       const set = (ch) => upsertEdit(ctx, sel.idx, { ...ch, restyled: true }, b);
       const keepFocus = (el) => el.addEventListener('pointerdown', (e) => e.preventDefault());
+      // הפונט המקורי (המוטמע בקובץ) — זמין כשאפשר לכתוב בו; אז הוא גם ברירת המחדל
+      const canOrig = b.font === 'original';
       const fontSeg = h(`<div class="segmented" role="group" aria-label="פונט">
-        <button aria-pressed="${it.font !== 'alef'}" data-f="plex" style="font-family:'Plex'">IBM Plex</button>
+        ${canOrig ? `<button aria-pressed="${it.font === 'original'}" data-f="original" title="הפונט שכבר בקובץ: השורה נראית בדיוק כמו השכנות שלה">הפונט המקורי</button>` : ''}
+        <button aria-pressed="${it.font === 'plex' || (!canOrig && it.font !== 'alef')}" data-f="plex" style="font-family:'Plex'">IBM Plex</button>
         <button aria-pressed="${it.font === 'alef'}" data-f="alef" style="font-family:'Alef'">Alef</button></div>`);
       fontSeg.querySelectorAll('button').forEach((x) => { keepFocus(x); x.onclick = () => set({ font: x.dataset.f }); });
       const row = h('<div class="tl-row"></div>');
@@ -1403,6 +1419,13 @@ function editPanel(panel) {
       box.append(fontSeg, row, sw);
       if (b.mixed) box.append(h('<p class="hint warn">בשורה הזו יש כמה סגנונות (למשל מילה מודגשת). אחרי עריכה כל השורה תיכתב בסגנון אחד.</p>'));
       if (!b.ok) box.append(h('<p class="hint warn">הפונט של השורה הזו לא מאפשר מחיקה. בשמירה השורה הישנה תכוסה בצבע הרקע.</p>'));
+      if (it.font === 'original' && lines[sel.idx]) {
+        const W = TextEdit.originalWriter(lines[sel.idx], lines);
+        const alt = it.fontAlt === 'alef' ? 'Alef' : 'IBM Plex';
+        const missing = W && String(it.text || '').split(/\r?\n/).some((t) => t.trim() && W.measure(window.HebrewPDF.toVisual(t, window.HebrewPDF.hasRTL(t) ? 'rtl' : 'ltr'), it.size) == null);
+        if (W && W.bold && !it.bold) box.append(h(`<p class="hint warn">הפונט המקורי מודגש, ולכן שורה לא מודגשת תיכתב בפונט ${alt}.</p>`));
+        else if (missing) box.append(h(`<p class="hint warn">בטקסט יש אותיות או סימנים שלא קיימים בפונט המקורי (הקובץ שומר רק את האותיות שבשימוש), ולכן השורה תיכתב בפונט ${alt}.</p>`));
+      }
       const ch = editsOf(sel.key).find((x) => x.lineIdx === sel.idx);
       if (ch) {
         const r = h(`<button class="btn">${icon('revert')}החזרת השורה למקור</button>`);
