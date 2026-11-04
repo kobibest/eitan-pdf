@@ -64,6 +64,12 @@ app.whenReady().then(async () => {
         fs.writeFileSync(path.join(outDir, s.saveTo), Buffer.from(arr));
       } catch (e) { errors.push('save error: ' + e.message); }
     }
+    if (s.dump) {
+      // { dump: { 'שם קובץ': 'ביטוי JS שמחזיר מערך בתים' } } — שמירת תוצרים (למשל קובץ Word מההמרה) לבדיקה
+      for (const [name, expr] of Object.entries(s.dump)) {
+        try { fs.writeFileSync(path.join(outDir, name), Buffer.from(await js(expr))); } catch (e) { errors.push('dump error: ' + e.message); }
+      }
+    }
     if (s.wait) await wait(s.wait);
     if (s.shot) await shot(s.shot);
   }

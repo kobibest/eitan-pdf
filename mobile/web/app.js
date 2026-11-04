@@ -8,6 +8,7 @@ import { drawSignature, savedSignatures, forgetSignature, imageRatio, closeSigna
 import { chooseCert, openCert, certLine, signatureRow, heavy } from './js/digital.js';
 import { Doc, loadSource, baseName } from './js/doc.js';
 import { Finder } from './js/find.js';
+import { openPdf, pdfjsLib } from './js/pdf.js';
 
 const Ops = window.PdfOps;
 
@@ -233,6 +234,8 @@ async function saveMenu() {
     { id: 'as', label: 'שמירה בשם…', sub: 'בוחרים תיקייה ושם לקובץ חדש', icon: ICON.saveAs },
     { id: 'share', label: 'שיתוף', sub: 'וואטסאפ, מייל ועוד', icon: ICON.share },
     { id: 'compress', label: 'קובץ דחוס…', sub: 'עותק קטן יותר לשליחה', icon: TOOL_ICON.zip },
+    { id: 'word', label: 'קובץ Word…', sub: 'המרה למסמך לעריכה', icon: TOOL_ICON.word },
+    { id: 'images', label: 'תמונות…', sub: 'כל עמוד לתמונה, או תמונה ארוכה אחת', icon: TOOL_ICON.img },
   ], {
     title: 'שמירה',
     note: fromApp ? 'הקובץ הגיע מאפליקציה שלא מאפשרת לשנות אותו (למשל וואטסאפ או ג׳ימייל). אפשר לשמור עותק בשם, או לשתף.' : '',
@@ -241,6 +244,8 @@ async function saveMenu() {
   if (choice === 'as') return saveAsNew();
   if (choice === 'share') { await shareDoc(); return false; }
   if (choice === 'compress') { await compressDoc({ confirmed: D.dirty }); return false; }
+  if (choice === 'word') { await convertWord(); return false; }
+  if (choice === 'images') { await convertImages(); return false; }
   return false;
 }
 
@@ -662,6 +667,7 @@ const TOOL_ICON = {
   img: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/></svg>',
   cam: '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   cert: '<svg viewBox="0 0 24 24"><path d="M5 3h10l4 4v8"/><path d="M5 3v18h7"/><circle cx="17" cy="17" r="3"/><path d="M15.5 19.5L15 23l2-1 2 1-.5-3.5"/></svg>',
+  word: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 11l1.2 6 1.8-4.5 1.8 4.5L15 11"/></svg>',
   zip: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M12.5 9v3.5M10 10.5l2.5 2.5 2.5-2.5M12.5 19v-3.5M10 17.5l2.5-2.5 2.5 2.5"/></svg>',
 };
 
@@ -679,6 +685,8 @@ async function toolsSheet() {
         ${card('digital', TOOL_ICON.cert, 'חתימה דיגיטלית', 'עם תעודה (‎.pfx) — מוכיחה מי חתם')}
         ${card('redact', TOOL_ICON.redact, 'השחרה', 'מוחקת לצמיתות את מה שמתחת')}
         ${card('compress', TOOL_ICON.zip, 'דחיסת הקובץ', 'קובץ קטן יותר, למייל ולוואטסאפ')}
+        ${card('word', TOOL_ICON.word, 'המרה ל-Word', 'מסמך לעריכה, עם טבלאות ותמונות')}
+        ${card('images', TOOL_ICON.img, 'המרה לתמונות', 'JPG או PNG, או תמונה ארוכה אחת')}
         ${card('img', TOOL_ICON.img, 'תמונות מהגלריה', 'כעמודים בסוף המסמך')}
         ${card('cam', TOOL_ICON.cam, 'צילום עמוד', 'במצלמה, כעמוד בסוף המסמך')}
       </div>`, { onClose: () => { if (!done) resolve(null); } });
@@ -689,6 +697,8 @@ async function toolsSheet() {
   else if (choice === 'digital') digitalSheet();
   else if (choice === 'redact') addRedaction();
   else if (choice === 'compress') compressDoc();
+  else if (choice === 'word') convertWord();
+  else if (choice === 'images') convertImages();
   else if (choice === 'img') addImages('gallery');
   else if (choice === 'cam') addImages('camera');
 }
@@ -802,6 +812,81 @@ async function compressDoc({ confirmed = false } = {}) {
   if (r.unchanged) { toast(`הקובץ כבר דחוס היטב (${iso(fmt(r.before))}), לא נמצא מה להקטין.`, { ms: 4500 }); return; }
   const pct = Math.round((1 - r.after / r.before) * 100);
   await deliverFiles([{ name: `${D.name} - דחוס.pdf`, bytes: r.bytes }], `${iso(fmt(r.before))} ← ${iso(fmt(r.after))} (קטן ב-${pct}%)`);
+}
+
+/*
+ * המרה ל-Word ולתמונות — אותם מנועים כמו בדסקטופ (src/core/docx.js, src/core/rasterize.js).
+ * המסמך עצמו לא משתנה; התוצאה נשמרת או משותפת כמו קובץ דחוס.
+ * בטלפון התמונות מוגבלות בגודל, כדי לא למלא את הזיכרון.
+ */
+const PHONE_LIMITS = { side: 8000, area: 16e6 };
+
+async function convertWord() {
+  const D = S.doc;
+  if (!D || !D.pages.length) return;
+  busy(true, 'ממיר ל-Word…');
+  let pdf = null;
+  let r;
+  try {
+    const built = await buildBytes({ protect: false });
+    pdf = await openPdf(built);
+    r = await window.Docx.convert(built, {
+      title: D.name,
+      onProgress: (k, n) => { $('#busy-text').textContent = `ממיר ל-Word… עמוד ${k} מתוך ${n}`; },
+      renderImage: (q) => window.Rasterize.renderRegion(pdf, q.pageIndex, q.box, { dpi: Math.min(q.dpi, 150), format: q.photo ? 'jpeg' : 'png', pdfjsLib, limits: PHONE_LIMITS }),
+    });
+  } catch (err) {
+    console.error(err);
+    toast('ההמרה נכשלה.', { error: true });
+    return;
+  } finally {
+    busy(false);
+    if (pdf) pdf.destroy();
+  }
+  const scans = r.stats.imagePages;
+  await deliverFiles([{ name: `${D.name}.docx`, bytes: r.bytes }], scans ? `קובץ Word (${scans === 1 ? 'עמוד סרוק נכנס כתמונה' : `${scans} עמודים סרוקים נכנסו כתמונות`})` : 'קובץ Word');
+}
+
+async function convertImages() {
+  const D = S.doc;
+  if (!D || !D.pages.length) return;
+  const n = D.pages.length;
+  const how = await menu([
+    { id: 'jpeg', label: n === 1 ? 'תמונת JPG' : 'כל עמוד לתמונה (JPG)', sub: 'קובץ קטן, מתאים לרוב המסמכים', icon: TOOL_ICON.img },
+    { id: 'png', label: n === 1 ? 'תמונת PNG' : 'כל עמוד לתמונה (PNG)', sub: 'חד יותר בטקסט ובקווים, קובץ גדול יותר', icon: TOOL_ICON.img },
+    ...(n > 1 ? [{ id: 'long', label: 'תמונה ארוכה אחת', sub: 'כל העמודים זה מתחת לזה, נוח לוואטסאפ', icon: TOOL_ICON.img }] : []),
+  ], { title: 'המרה לתמונות', note: 'ב-150 DPI: נראה טוב במסך ובהדפסה. המסמך עצמו לא משתנה.' });
+  if (!how) return;
+  busy(true, 'יוצר תמונות…');
+  let pdf = null;
+  const files = [];
+  let reduced = false;
+  try {
+    pdf = await openPdf(await buildBytes({ protect: false }));
+    const opts = { dpi: 150, format: how === 'png' ? 'png' : 'jpeg', quality: 0.88, pdfjsLib, limits: PHONE_LIMITS };
+    if (how === 'long') {
+      const img = await window.Rasterize.renderLong(pdf, D.pages.map((_, i) => i + 1), opts);
+      reduced = img.reduced;
+      files.push({ name: `${D.name}.jpg`, bytes: img.bytes });
+    } else {
+      const ext = how === 'png' ? 'png' : 'jpg';
+      const names = window.Rasterize.pageNames(D.name, D.pages.map((_, i) => i + 1), ext);
+      for (let i = 0; i < n; i++) {
+        $('#busy-text').textContent = `יוצר תמונות… ${i + 1} מתוך ${n}`;
+        const img = await window.Rasterize.renderPage(pdf, i + 1, opts);
+        reduced = reduced || img.reduced;
+        files.push({ name: n === 1 ? `${D.name}.${ext}` : names[i], bytes: img.bytes });
+      }
+    }
+  } catch (err) {
+    console.error(err);
+    toast('ההמרה נכשלה.', { error: true });
+    return;
+  } finally {
+    busy(false);
+    if (pdf) pdf.destroy();
+  }
+  await deliverFiles(files, `${files.length === 1 ? 'תמונה' : `${files.length} תמונות`}${reduced ? ' (הוקטנו כדי לא להיות גדולות מדי)' : ''}`);
 }
 
 function addRedaction() {

@@ -427,8 +427,18 @@ public class EitanFilesPlugin extends Plugin {
     private static String safeName(String name) {
         String n = name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").trim();
         if (n.isEmpty()) n = "מסמך.pdf";
-        if (!n.toLowerCase().endsWith(".pdf")) n += ".pdf";
+        // קבצים שהאפליקציה יוצרת: PDF, ומההמרה — Word ותמונות
+        if (!n.toLowerCase().matches(".*\\.(pdf|docx|jpe?g|png)$")) n += ".pdf";
         return n;
+    }
+
+    /** סוג הקובץ לפי הסיומת — לדיאלוג השמירה, ליצירה בתיקייה ולשיתוף */
+    private static String mimeFor(String name) {
+        String n = name.toLowerCase();
+        if (n.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+        if (n.endsWith(".png")) return "image/png";
+        return "application/pdf";
     }
 
     private void copyToUri(File src, Uri uri) throws IOException {
@@ -474,8 +484,9 @@ public class EitanFilesPlugin extends Plugin {
     public void saveAs(PluginCall call) {
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("application/pdf");
-        intent.putExtra(Intent.EXTRA_TITLE, safeName(call.getString("name", "מסמך.pdf")));
+        String name = safeName(call.getString("name", "מסמך.pdf"));
+        intent.setType(mimeFor(name));
+        intent.putExtra(Intent.EXTRA_TITLE, name);
         startActivityForResult(call, intent, "saveAsResult");
     }
 
@@ -534,7 +545,7 @@ public class EitanFilesPlugin extends Plugin {
                 for (int i = 0; i < files.length(); i++) {
                     JSONObject f = files.getJSONObject(i);
                     File src = outFile(f.getString("path"));
-                    Uri doc = DocumentsContract.createDocument(cr, parent, "application/pdf", src.getName());
+                    Uri doc = DocumentsContract.createDocument(cr, parent, mimeFor(src.getName()), src.getName());
                     if (doc == null) throw new IOException("create failed");
                     copyToUri(src, doc);
                     count++;
@@ -555,10 +566,15 @@ public class EitanFilesPlugin extends Plugin {
         try {
             JSONArray files = call.getArray("files");
             ArrayList<Uri> uris = new ArrayList<>();
+            String type = null;
             String authority = getContext().getPackageName() + ".fileprovider";
             for (int i = 0; i < files.length(); i++) {
                 File f = outFile(files.getJSONObject(i).getString("path"));
                 uris.add(FileProvider.getUriForFile(getContext(), authority, f));
+                String t = mimeFor(f.getName());
+                // כמה סוגים שונים: תמונות → image/*, אחרת כל סוג
+                if (type == null) type = t;
+                else if (!type.equals(t)) type = type.startsWith("image/") && t.startsWith("image/") ? "image/*" : "*/*";
             }
             if (uris.isEmpty()) throw new IOException("no files");
             Intent send;
@@ -569,7 +585,7 @@ public class EitanFilesPlugin extends Plugin {
                 send = new Intent(Intent.ACTION_SEND_MULTIPLE);
                 send.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
             }
-            send.setType("application/pdf");
+            send.setType(type);
             ClipData clip = ClipData.newRawUri("", uris.get(0));
             for (int i = 1; i < uris.size(); i++) clip.addItem(new ClipData.Item(uris.get(i)));
             send.setClipData(clip);

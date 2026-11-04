@@ -659,6 +659,143 @@ async function makeForm() {
     assert.deepStrictEqual(PS.pageLines(doc, 1), []); // עמוד בלי טקסט
   });
 
+  /* ---------- המרה ל-Word ---------- */
+  const Docx = require('../src/core/docx.js');
+  const { unzipSync, strFromU8 } = require('fflate');
+  const PNG1 = new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+  const fixture = (n) => fs.readFileSync(path.join(__dirname, 'fixtures', n));
+  /** המרה + פתיחת ה-ZIP. מחזיר את document.xml, את הפסקאות כטקסט, ואת בקשות הציור */
+  async function toWord(bytes, name, opts = {}) {
+    const asked = [];
+    const r = await Docx.convert(bytes, { ...opts, renderImage: async (q) => { asked.push(q); return { bytes: PNG1, type: 'png' }; } });
+    fs.writeFileSync(path.join(OUT, name), r.bytes);
+    const zip = unzipSync(r.bytes);
+    const xml = strFromU8(zip['word/document.xml']);
+    const paras = [...xml.matchAll(/<w:p>([\s\S]*?)<\/w:p>/g)].map((m) => [...m[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>|<w:tab\/>/g)].map((t) => (t[1] == null ? '\t' : t[1])).join('').replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+    // החבילה תקינה: כל קובץ שמוזכר בקשרים קיים, וכל סוג תמונה רשום
+    const rels = strFromU8(zip['word/_rels/document.xml.rels']);
+    for (const [, t] of rels.matchAll(/Target="([^"]+)"/g)) assert.ok(zip['word/' + t], 'חסר בחבילה: ' + t);
+    const types = strFromU8(zip['[Content_Types].xml']);
+    for (const k of Object.keys(zip)) if (/\.(png|jpeg)$/.test(k)) assert.ok(types.includes(`Extension="${k.split('.').pop()}"`), 'סוג לא רשום: ' + k);
+    return { r, zip, xml, paras, asked };
+  }
+
+  await ok('Word: עברית בסדר לוגי, שורות שנשברו מתחברות לפסקה, כותרת וכיוון מימין לשמאל', async () => {
+    const { xml, paras, r } = await toWord(fixture('הסכם שכירות.pdf'), 'word-agreement.docx');
+    assert.strictEqual(r.stats.textPages, 3);
+    assert.ok(paras.includes('הסכם שכירות בלתי מוגנת'), 'הכותרת');
+    assert.ok(/<w:pStyle w:val="Heading1"\/>[\s\S]*?הסכם שכירות בלתי מוגנת/.test(xml), 'הכותרת מסומנת כ-Heading1');
+    const p1 = paras.find((t) => t.startsWith('1. דמי השכירות'));
+    assert.ok(p1, 'פסקה 1');
+    // שתי שורות במקור — פסקה אחת ב-Word, עם המספרים במקום
+    assert.ok(p1.includes('6,450 ש"ח (שישה אלף ארבע מאות וחמישים שקלים חדשים)'), p1);
+    assert.ok(p1.includes('ה-5 בכל חודש'), p1);
+    assert.ok(xml.includes('<w:bidi/>') && xml.includes('<w:rtl/>'));
+    // מספרים ואנגלית בקטע נפרד, בלי rtl
+    assert.ok(/<w:r>(?:(?!<w:r>).)*?<w:t xml:space="preserve">office@example\.co\.il<\/w:t>/.test(xml));
+    assert.ok(!/<w:rtl\/><\/w:rPr><w:t xml:space="preserve">office@example/.test(xml));
+    // שלושה עמודים → שלושה מקטעים (שניים בפסקאות + אחד בסוף)
+    assert.strictEqual((xml.match(/<w:sectPr>/g) || []).length, 3);
+  });
+
+  await ok('Word: הדגשה בתוך שורה נשמרת ("הנדון:" מודגש, השאר רגיל)', async () => {
+    const { xml, paras } = await toWord(fixture('libreoffice-letter.pdf'), 'word-letter.docx');
+    assert.ok(paras.some((t) => t.startsWith('הנדון: חשבונית מס')), paras.join('\n'));
+    const m = xml.match(/<w:p>(?:(?!<w:p>)[\s\S])*?הנדון:[\s\S]*?<\/w:p>/)[0];
+    assert.ok(/<w:b\/><w:bCs\/>(?:(?!<w:r>).)*?הנדון:/.test(m), 'הנדון מודגש');
+    assert.ok(/<w:r><w:rPr>(?:(?!<w:b\/>)(?!<\/w:rPr>).)*<\/w:rPr><w:t xml:space="preserve"> ?חשבונית/.test(m), 'ההמשך לא מודגש');
+  });
+
+  await ok('Word: טבלה מזוהה לפי טורים, מימין לשמאל, עם גובה שורות כמו במקור', async () => {
+    const { xml, r, paras } = await toWord(fixture('נספחים.pdf'), 'word-table.docx');
+    assert.strictEqual(r.stats.tables, 1);
+    const tbl = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/)[0];
+    assert.ok(tbl.includes('<w:bidiVisual/>'));
+    assert.strictEqual((tbl.match(/<w:gridCol /g) || []).length, 4);
+    assert.strictEqual((tbl.match(/<w:tr>/g) || []).length, 9);
+    assert.ok(/w:trHeight/.test(tbl));
+    // השורה הראשונה: הכותרות, מהטור הימני
+    const firstRow = tbl.match(/<w:tr>[\s\S]*?<\/w:tr>/)[0];
+    const cells = [...firstRow.matchAll(/<w:tc>([\s\S]*?)<\/w:tc>/g)].map((c) => [...c[1].matchAll(/<w:t[^>]*>([^<]*)</g)].map((t) => t[1]).join(''));
+    assert.deepStrictEqual(cells, ['חודש', 'סכום', 'תאריך פירעון', 'אסמכתא']);
+    assert.ok(paras.some((t) => t.startsWith('דירת 4 חדרים בקומה 3')));
+  });
+
+  await ok('Word: עמוד סרוק נכנס כתמונה, תמונה בעמוד טקסט נכנסת במקומה', async () => {
+    const d = await PDFDocument.load(fixture('הסכם שכירות.pdf'));
+    const sig = await d.embedPng(fixture('signature.png'));
+    d.getPage(0).drawImage(sig, { x: 200, y: 330, width: 200, height: 80 });
+    const scan = await d.embedJpg(fixture('redacted-page.jpg'));
+    const q = d.addPage([842, 595]);
+    q.drawImage(scan, { x: 0, y: 0, width: 842, height: 595 });
+    const { r, zip, xml, asked } = await toWord(await d.save(), 'word-images.docx');
+    assert.strictEqual(r.stats.imagePages, 1);
+    assert.strictEqual(r.stats.images, 2);
+    const region = asked.find((a) => !a.full);
+    assert.strictEqual(region.pageIndex, 0);
+    assert.deepStrictEqual(region.box.map(Math.round), [200, 330, 400, 410]);
+    const full = asked.find((a) => a.full);
+    assert.strictEqual(full.pageIndex, 3);
+    assert.ok(zip['word/media/image1.png'] && zip['word/media/image2.png']);
+    // התמונה בין הפסקה החמישית לכותרת התחתונה; העמוד הסרוק — לרוחב
+    assert.ok(/office@example[\s\S]*01\/01\/2027[\s\S]*<w:drawing>/.test(xml));
+    assert.ok(/w:orient="landscape"/.test(xml));
+  });
+
+  await ok('Word: רק העמודים שנבחרו, וטקסט שלא ניתן לקרוא לא נכנס כג׳יבריש', async () => {
+    const { r, paras } = await toWord(fixture('הסכם שכירות.pdf'), 'word-pages.docx', { pages: [1] });
+    assert.strictEqual(r.stats.pages, 1);
+    assert.ok(!paras.includes('הסכם שכירות בלתי מוגנת'));
+    // גופן בלי ToUnicode ובלי קידוד מוכר: העמוד נכנס כתמונה
+    const d = await PDFDocument.create();
+    const p = d.addPage([300, 200]);
+    const font = d.context.obj({ Type: 'Font', Subtype: 'Type0', BaseFont: 'Weird', Encoding: 'Custom-H', DescendantFonts: [] });
+    p.node.set(P.PDFName.of('Resources'), d.context.obj({ Font: { F1: d.context.register(font) } }));
+    p.node.set(P.PDFName.of('Contents'), d.context.register(d.context.stream('BT /F1 12 Tf 20 100 Td <00410042> Tj ET')));
+    const w = await toWord(await d.save(), 'word-unreadable.docx');
+    assert.strictEqual(w.r.stats.unreadable, 1);
+  });
+
+  await ok('Word: פיצול לפי כתב ושמות גופנים', () => {
+    assert.deepStrictEqual(Docx.splitScript('המחיר 1,250.50 ש"ח', 'rtl'), [{ text: 'המחיר ', rtl: true }, { text: '1,250.50', rtl: false }, { text: ' ש"ח', rtl: true }]);
+    assert.deepStrictEqual(Docx.splitScript('Hello שלום', 'ltr'), [{ text: 'Hello', rtl: false }, { text: ' שלום', rtl: true }]);
+    assert.strictEqual(Docx.fontFamily('ABCDEF+Arial-BoldMT'), 'Arial');
+    assert.strictEqual(Docx.fontFamily('TimesNewRomanPS-ItalicMT'), 'Times New Roman');
+    assert.strictEqual(Docx.fontFamily('IBMPlexSansHebrew-SemiBold'), 'IBM Plex Sans Hebrew');
+    assert.strictEqual(Docx.fontFamily('F12'), 'Arial');
+  });
+
+  await ok('Word: נפתח ב-LibreOffice והטקסט העברי חוזר כמו שהוא', async () => {
+    const { execFileSync } = require('child_process');
+    let soffice = null;
+    for (const c of ['soffice', 'libreoffice']) { try { execFileSync('which', [c]); soffice = c; break; } catch (e) { /* אין */ } }
+    if (!soffice) { console.log('  (אין LibreOffice במחשב — מדלגים)'); return; }
+    const dir = fs.mkdtempSync(path.join(OUT, 'lo-'));
+    fs.copyFileSync(path.join(OUT, 'word-agreement.docx'), path.join(dir, 'a.docx'));
+    execFileSync(soffice, ['--headless', '--convert-to', 'pdf', '--outdir', dir, path.join(dir, 'a.docx')], { stdio: 'ignore', timeout: 120000 });
+    const back = await PDFDocument.load(fs.readFileSync(path.join(dir, 'a.pdf')));
+    const lines = T.groupLines(T.analyzePage(back, back.getPage(0)).glyphs);
+    const texts = lines.map((L) => T.lineText(L, lines).text);
+    assert.ok(texts.includes('הסכם שכירות בלתי מוגנת'), texts.join('\n'));
+    assert.ok(texts.some((t) => t.includes('6,450')), texts.join('\n'));
+  });
+
+  await ok('תמונות: רזולוציה נכתבת ל-JPEG ול-PNG, ושמות עמודים ממוספרים', () => {
+    const R = require('../src/core/rasterize.js');
+    assert.strictEqual(R.crc32(Buffer.from('IEND')), 0xAE426082);
+    const png = R.setDpi(PNG1, 150);
+    const i = Buffer.from(png).indexOf('pHYs');
+    assert.ok(i > 0);
+    assert.strictEqual(Buffer.from(png).readUInt32BE(i + 4), Math.round(150 / 0.0254));
+    assert.strictEqual(Buffer.from(png).readUInt32BE(i + 13), R.crc32(png.subarray(i, i + 13)));
+    assert.strictEqual(Buffer.from(R.setDpi(png, 300)).indexOf('pHYs', i + 4), -1, 'pHYs אחד בלבד');
+    const jfif = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0xFF, 0xD9]);
+    const j = R.setDpi(jfif, 300);
+    assert.deepStrictEqual([...j.subarray(13, 18)], [1, 1, 44, 1, 44]);
+    assert.deepStrictEqual(R.pageNames('חוזה', [1, 2, 10], 'jpg'), ['חוזה - עמוד 01.jpg', 'חוזה - עמוד 02.jpg', 'חוזה - עמוד 10.jpg']);
+    assert.deepStrictEqual(R.pageNames('חוזה', [3, 120], 'png'), ['חוזה - עמוד 003.png', 'חוזה - עמוד 120.png']);
+  });
+
   await ok('המנוע נטען במצב דפדפן (כמו ב-WebView של אנדרואיד) וכותב עברית', async () => {
     const out = await require('./browser-globals.js').run(fonts);
     fs.writeFileSync(path.join(OUT, 'browser-globals.pdf'), out);

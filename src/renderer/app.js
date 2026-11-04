@@ -159,6 +159,7 @@ const S = {
   pagesMode: 'arrange', // בתוך "עמודים": סידור / מיזוג / פיצול / סימן מים ומספור / דחיסה
   compressLevel: ['light', 'medium', 'strong'].includes(localStore('compressLevel')) ? localStore('compressLevel') : 'medium',
   compressResult: null, // { docId, level, before, after } — תוצאת הדחיסה האחרונה, להצגה בלוח
+  convert: loadConvertPrefs(), // המרה ל-Word / לתמונות — ההגדרות נשמרות בין הפעלות
 };
 const PAGES_MODES = [
   { id: 'arrange', label: 'סידור' },
@@ -166,10 +167,11 @@ const PAGES_MODES = [
   { id: 'split', label: 'פיצול' },
   { id: 'extras', label: 'סימן מים' },
   { id: 'compress', label: 'דחיסה' },
+  { id: 'convert', label: 'המרה' },
 ];
 /** כלים ישנים (מיזוג/פיצול/סימון) הם עכשיו מצבים בתוך "עמודים" */
 function normalizeTool(t) {
-  if (t === 'merge' || t === 'split' || t === 'extras' || t === 'compress') { S.pagesMode = t; return 'pages'; }
+  if (t === 'merge' || t === 'split' || t === 'extras' || t === 'compress' || t === 'convert') { S.pagesMode = t; return 'pages'; }
   if (t === 'folder') return 'view'; // כלי שהוסר
   return t;
 }
@@ -1925,6 +1927,195 @@ async function doCompress() {
   }
 }
 
+/* =========================================================
+ * המרה ל-Word ולתמונות — המנועים המשותפים לדסקטופ ולאנדרואיד:
+ * src/core/docx.js (Word) ו-src/core/rasterize.js (תמונות)
+ * ======================================================= */
+function loadConvertPrefs() {
+  const d = { to: 'word', format: 'jpeg', dpi: 150, scope: 'all', range: '', long: false };
+  try {
+    const v = JSON.parse(localStore('convert') || 'null');
+    if (v && typeof v === 'object') {
+      if (['word', 'images'].includes(v.to)) d.to = v.to;
+      if (['jpeg', 'png'].includes(v.format)) d.format = v.format;
+      if ([96, 150, 300].includes(v.dpi)) d.dpi = v.dpi;
+      d.long = !!v.long;
+    }
+  } catch (e) { /* הגדרות פגומות — ברירת מחדל */ }
+  return d;
+}
+function saveConvertPrefs() {
+  const c = S.convert;
+  localStore('convert', JSON.stringify({ to: c.to, format: c.format, dpi: c.dpi, long: c.long }));
+}
+
+const DPI_LEVELS = [
+  { dpi: 96, title: 'מסך', sub: '96 DPI. קובץ קטן, לשליחה ולצפייה בטלפון' },
+  { dpi: 150, title: 'רגילה', sub: '150 DPI. נראה טוב במסך ובהדפסה' },
+  { dpi: 300, title: 'הדפסה', sub: '300 DPI. הכי חד, קבצים גדולים' },
+];
+
+/** העמודים להמרה (אינדקסים מאפס), או שגיאה בעברית */
+function convertPages() {
+  const c = S.convert;
+  const n = S.pages.length;
+  if (c.scope !== 'range') return { pages: S.pages.map((_, i) => i) };
+  if (!c.range.trim()) return { pages: null };
+  try {
+    const set = new Set(Ops.parseRanges(c.range, n).flat());
+    return { pages: [...set].sort((a, b) => a - b) };
+  } catch (e) { return { pages: null, error: e.message }; }
+}
+
+function renderConvert() {
+  const panel = $('#panel');
+  const desk = $('#desk');
+  const c = S.convert;
+  const radios = (name, items, cur) => items.map((it) => `<label><input type="radio" name="${name}" value="${it.id}" ${String(cur) === String(it.id) ? 'checked' : ''}><span><b>${it.title}</b>${it.sub ? `<small>${it.sub}</small>` : ''}</span></label>`).join('');
+  const g = h(`
+    <div class="group">
+      <h2>המרה ל…</h2>
+      <div class="radio-list" role="radiogroup">${radios('ct', [
+        { id: 'word', title: 'מסמך Word', sub: 'טקסט לעריכה, עם פסקאות, טבלאות ותמונות' },
+        { id: 'images', title: 'תמונות', sub: 'כל עמוד לתמונה, JPG או PNG' },
+      ], c.to)}</div>
+    </div>`);
+  g.querySelectorAll('input[name=ct]').forEach((r) => (r.onchange = () => { c.to = r.value; saveConvertPrefs(); render(); }));
+  panel.append(g);
+
+  if (c.to === 'images') {
+    const o = h(`
+      <div class="group">
+        <h2>פורמט</h2>
+        <div class="radio-list" role="radiogroup">${radios('cf', [
+          { id: 'jpeg', title: 'JPG', sub: 'קובץ קטן. מתאים לרוב המסמכים ולתמונות' },
+          { id: 'png', title: 'PNG', sub: 'חד יותר בטקסט ובקווים, קובץ גדול יותר' },
+        ], c.format)}</div>
+        <h2>איכות</h2>
+        <div class="radio-list" role="radiogroup">${radios('cq', DPI_LEVELS.map((l) => ({ id: l.dpi, title: l.title, sub: l.sub })), c.dpi)}</div>
+        <label class="check"><input type="checkbox" ${c.long ? 'checked' : ''}><span>תמונה ארוכה אחת<small>כל העמודים זה מתחת לזה, בתמונה אחת. נוח לשליחה בוואטסאפ</small></span></label>
+      </div>`);
+    o.querySelectorAll('input[name=cf]').forEach((r) => (r.onchange = () => { c.format = r.value; saveConvertPrefs(); render(); }));
+    o.querySelectorAll('input[name=cq]').forEach((r) => (r.onchange = () => { c.dpi = +r.value; saveConvertPrefs(); render(); }));
+    o.querySelector('input[type=checkbox]').onchange = (e) => { c.long = e.target.checked; saveConvertPrefs(); render(); };
+    panel.append(o);
+  }
+
+  const pg = h(`
+    <div class="group">
+      <h2>עמודים</h2>
+      <div class="radio-list" role="radiogroup">${radios('cs', [
+        { id: 'all', title: `כל העמודים (${S.pages.length})` },
+        { id: 'range', title: 'רק חלק', sub: 'למשל <bdi dir="ltr">1-3, 5, 8-</bdi>' },
+      ], c.scope)}</div>
+    </div>`);
+  pg.querySelectorAll('input[name=cs]').forEach((r) => (r.onchange = () => { c.scope = r.value; render(); }));
+  if (c.scope === 'range') {
+    const f = h(`<label class="field"><span>טווחי עמודים (מתוך ${S.pages.length})</span><input class="input" dir="ltr" style="text-align:right" placeholder="1-3, 5, 8-" value="${esc(c.range)}"></label>`);
+    const inp = f.querySelector('input');
+    inp.oninput = () => { c.range = inp.value; clearTimeout(f.__t); f.__t = setTimeout(() => { render(); const n = $('#panel input.input[dir=ltr]'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 450); };
+    pg.append(f);
+  }
+  panel.append(pg);
+
+  const { pages, error } = convertPages();
+  const base = baseName(defaultName());
+  const ext = c.format === 'png' ? 'png' : 'jpg';
+  const label = c.to === 'word' ? 'המרה ושמירה כקובץ Word' : 'המרה ושמירה';
+  const out = h(`<div class="group"><h2>התוצאה</h2><p class="hint"></p><button class="btn btn-primary btn-block btn-lg" ${pages && pages.length ? '' : 'disabled'}>${icon('save')}${label}</button></div>`);
+  const hint = out.querySelector('.hint');
+  if (error) { hint.textContent = error; hint.style.color = 'var(--stamp)'; }
+  else if (!pages) hint.textContent = 'הקלידו טווחים כדי לבחור עמודים.';
+  else if (c.to === 'word') hint.innerHTML = `קובץ בשם <bdi>${esc(base)}.docx</bdi>. עמוד סרוק (בלי טקסט) נכנס כתמונה, כי אין בו טקסט לעריכה.`;
+  else if (c.long || pages.length === 1) hint.innerHTML = `תמונה אחת, בשם <bdi>${esc(base)}${pages.length === 1 && !c.long ? ` - עמוד ${pages[0] + 1}` : ''}.${ext}</bdi>.`;
+  else hint.innerHTML = `${pages.length} תמונות, בתיקייה שתבחרו, בשמות כמו <bdi>${esc(window.Rasterize.pageNames(base, [pages[0] + 1], ext)[0])}</bdi>.`;
+  const st = D().security;
+  if (st && (st.open.on || st.restrict.on) && !error) hint.innerHTML += ' <br>שימו לב: לעותק המומר אין סיסמה או הגבלות.';
+  out.querySelector('button').onclick = () => doConvert(pages);
+  panel.append(out);
+
+  desk.append(deskBar());
+  const grid = h('<div class="grid"></div>');
+  grid.style.setProperty('--thumb-w', S.thumbW + 'px');
+  const chosen = new Set(pages || []);
+  S.pages.forEach((p, i) => {
+    const el = sheetEl(p, i, { static: true });
+    if (pages && !chosen.has(i)) el.classList.add('dim');
+    grid.append(el);
+  });
+  desk.append(grid);
+}
+
+/** עדכון הטקסט בחלון "עובד…" (להתקדמות בהמרה ארוכה) */
+function busyText(text) {
+  const el = document.querySelector('.busy-card span:last-child');
+  if (el) el.textContent = text;
+}
+
+async function doConvert(pages) {
+  const d = D();
+  if (!d || !pages || !pages.length) return;
+  const c = S.convert;
+  const base = baseName(defaultName());
+  let pdf = null;
+  try {
+    const built = await busy('מכין את הקובץ…', () => buildBytes(S.pages));
+    pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: built.slice() }).promise;
+    if (c.to === 'word') {
+      const r = await busy('ממיר ל-Word…', () => window.Docx.convert(built, {
+        pages,
+        title: base,
+        onProgress: (k, n) => busyText(`ממיר ל-Word… עמוד ${k} מתוך ${n}`),
+        renderImage: (req) => window.Rasterize.renderRegion(pdf, req.pageIndex, req.box, { dpi: req.dpi, format: req.photo ? 'jpeg' : 'png', pdfjsLib }),
+      }));
+      const path = await api.saveAs(`${base}.docx`, r.bytes, d.path, 'docx');
+      if (!path) return;
+      const notes = [];
+      if (r.stats.imagePages) notes.push(r.stats.imagePages === 1 ? 'עמוד אחד סרוק נכנס כתמונה' : `${r.stats.imagePages} עמודים סרוקים נכנסו כתמונות`);
+      toast(`נשמר קובץ Word${notes.length ? ' (' + notes.join(', ') + ')' : ''}.`, { action: { label: 'פתיחה', run: () => api.openPath(path) } });
+      return;
+    }
+    // תמונות
+    const ext = c.format === 'png' ? 'png' : 'jpg';
+    const opts = { dpi: c.dpi, format: c.format, quality: 0.9, pdfjsLib };
+    if (c.long && pages.length > 1) {
+      const img = await busy('יוצר תמונה ארוכה…', () => window.Rasterize.renderLong(pdf, pages.map((i) => i + 1), opts));
+      const path = await api.saveAs(`${base}.${ext}`, img.bytes, d.path, c.format);
+      if (!path) return;
+      toast(img.reduced ? 'נשמר. התמונה הוקטנה כדי שלא תהיה גדולה מדי.' : 'נשמרה תמונה אחת.', { action: { label: 'פתיחה בתיקייה', run: () => api.showInFolder(path) } });
+      return;
+    }
+    if (pages.length === 1) {
+      const img = await busy('יוצר תמונה…', () => window.Rasterize.renderPage(pdf, pages[0] + 1, opts));
+      const path = await api.saveAs(window.Rasterize.pageNames(base, [pages[0] + 1], ext)[0], img.bytes, d.path, c.format);
+      if (!path) return;
+      toast(img.reduced ? 'נשמר. העמוד גדול מאוד, ולכן התמונה הוקטנה.' : 'נשמרה התמונה.', { action: { label: 'פתיחה בתיקייה', run: () => api.showInFolder(path) } });
+      return;
+    }
+    const folder = await api.chooseFolder('בחירת תיקייה לתמונות');
+    if (!folder) return;
+    const names = window.Rasterize.pageNames(base, pages.map((i) => i + 1), ext);
+    let reduced = false;
+    const written = await busy('יוצר תמונות…', async () => {
+      const paths = [];
+      // כותבים כל תמונה מיד, כדי לא להחזיק את כולן בזיכרון
+      for (let k = 0; k < pages.length; k++) {
+        busyText(`יוצר תמונות… ${k + 1} מתוך ${pages.length}`);
+        const img = await window.Rasterize.renderPage(pdf, pages[k] + 1, opts);
+        reduced = reduced || img.reduced;
+        paths.push(...(await api.writeFiles(folder, [{ name: names[k], bytes: img.bytes }])));
+      }
+      return paths;
+    });
+    toast(`נשמרו ${written.length} תמונות${reduced ? ' (עמודים גדולים מאוד הוקטנו)' : ''}.`, { action: { label: 'פתיחה בתיקייה', run: () => api.showInFolder(written[0]) } });
+  } catch (e) {
+    console.error(e);
+    toast('ההמרה נכשלה: ' + e.message, { error: true });
+  } finally {
+    if (pdf) pdf.destroy();
+  }
+}
+
 let previewToken = 0;
 
 async function renderPreview(wrap) {
@@ -2476,7 +2667,7 @@ function renderPages() {
     seg.append(b);
   }
   panel.append(seg);
-  ({ arrange: renderArrange, merge: renderMerge, split: renderSplit, extras: renderExtras, compress: renderCompress })[S.pagesMode]();
+  ({ arrange: renderArrange, merge: renderMerge, split: renderSplit, extras: renderExtras, compress: renderCompress, convert: renderConvert })[S.pagesMode]();
 }
 
 function renderMerge() {
@@ -3313,6 +3504,9 @@ function wire() {
     else if (cmd === 'find-next') { if (F.open && F.results.length) stepFind(1); else openFind(); }
     else if (cmd === 'find-prev') { if (F.open && F.results.length) stepFind(-1); else openFind(); }
     else if (cmd === 'compress') { if (D() && S.pages.length) activate(activeId, 'compress'); }
+    else if (cmd === 'convert-word' || cmd === 'convert-images') {
+      if (D() && S.pages.length) { S.convert.to = cmd === 'convert-word' ? 'word' : 'images'; saveConvertPrefs(); activate(activeId, 'convert'); }
+    }
     else if (cmd === 'close-tab') { if (activeId) closeTab(activeId); }
     else if (cmd === 'undo') { if (!isTyping()) undo(); else document.execCommand('undo'); }
     else if (cmd === 'redo') { if (!isTyping()) redo(); else document.execCommand('redo'); }
@@ -3421,5 +3615,5 @@ function wire() {
   await Promise.all(savedSignatures().map(preloadRatio));
   render();
   api.rendererReady();
-  window.__app = { S, docs, D, render, setView, openInEditor, commit, saveDocument, buildBytes, activate, pageLines, undo, redo }; // לבדיקות אוטומטיות
+  window.__app = { S, docs, D, render, setView, openInEditor, commit, saveDocument, buildBytes, activate, pageLines, undo, redo, pdfjsLib, PDFJS_OPTS }; // לבדיקות אוטומטיות
 })();

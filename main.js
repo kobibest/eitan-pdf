@@ -115,6 +115,8 @@ function createWindow() {
         { label: 'שמירה', accelerator: 'CmdOrCtrl+S', click: send('save') },
         { label: 'שמירה בשם…', accelerator: 'CmdOrCtrl+Shift+S', click: send('save-as') },
         { label: 'דחיסת הקובץ…', click: send('compress') },
+        { label: 'המרה ל-Word…', click: send('convert-word') },
+        { label: 'שמירה כתמונות…', click: send('convert-images') },
         { type: 'separator' },
         { label: 'סגירת לשונית', accelerator: 'CmdOrCtrl+W', click: send('close-tab') },
         { label: 'יציאה', role: isMac ? 'close' : 'quit' },
@@ -199,11 +201,20 @@ ipcMain.handle('write-file', async (_e, { target, bytes }) => {
   return target;
 });
 
-ipcMain.handle('save-as', async (_e, { defaultName, bytes, near }) => {
+// סוגי הקבצים שאפשר לשמור: PDF, ומההמרה — Word ותמונות
+const SAVE_KINDS = {
+  pdf: { title: 'שמירת קובץ PDF', filters: PDF_FILTER, ext: /\.pdf$/i, add: '.pdf' },
+  docx: { title: 'שמירת קובץ Word', filters: [{ name: 'מסמך Word', extensions: ['docx'] }], ext: /\.docx$/i, add: '.docx' },
+  jpeg: { title: 'שמירת תמונה', filters: [{ name: 'תמונת JPG', extensions: ['jpg', 'jpeg'] }], ext: /\.jpe?g$/i, add: '.jpg' },
+  png: { title: 'שמירת תמונה', filters: [{ name: 'תמונת PNG', extensions: ['png'] }], ext: /\.png$/i, add: '.png' },
+};
+
+ipcMain.handle('save-as', async (_e, { defaultName, bytes, near, kind }) => {
+  const k = SAVE_KINDS[kind] || SAVE_KINDS.pdf;
   const defaultPath = near ? path.join(path.dirname(near), defaultName) : defaultName;
-  const r = await dialog.showSaveDialog(win, { title: 'שמירת קובץ PDF', defaultPath, filters: PDF_FILTER });
+  const r = await dialog.showSaveDialog(win, { title: k.title, defaultPath, filters: k.filters });
   if (r.canceled || !r.filePath) return null;
-  const target = /\.pdf$/i.test(r.filePath) ? r.filePath : r.filePath + '.pdf';
+  const target = k.ext.test(r.filePath) ? r.filePath : r.filePath + k.add;
   await fs.writeFile(target, Buffer.from(bytes));
   return target;
 });
@@ -216,8 +227,9 @@ ipcMain.handle('choose-folder', async (_e, title) => {
 ipcMain.handle('write-files', async (_e, { folder, files }) => {
   const written = [];
   for (const f of files) {
-    let target = path.join(folder, f.name);
-    for (let n = 2; await exists(target); n++) target = path.join(folder, f.name.replace(/\.pdf$/i, ` (${n}).pdf`));
+    const name = path.basename(f.name); // רק שם קובץ, בלי תיקיות
+    let target = path.join(folder, name);
+    for (let n = 2; await exists(target); n++) target = path.join(folder, name.replace(/(\.[^.]+)?$/, (ext) => ` (${n})${ext}`));
     await fs.writeFile(target, Buffer.from(f.bytes));
     written.push(target);
   }

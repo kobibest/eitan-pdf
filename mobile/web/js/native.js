@@ -89,8 +89,17 @@ function toBase64(u8) {
   return btoa(s);
 }
 
+/** סוג הקובץ לפי הסיומת (PDF, ומההמרה — Word ותמונות) */
+export function mimeOf(name) {
+  const n = String(name).toLowerCase();
+  if (n.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (/\.jpe?g$/.test(n)) return 'image/jpeg';
+  if (n.endsWith('.png')) return 'image/png';
+  return 'application/pdf';
+}
+
 function download(name, bytes) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeOf(name) }));
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
@@ -127,7 +136,7 @@ export async function saveToFolder(files) {
 /** שיתוף. files: [{ name, bytes }] */
 export async function share(files) {
   if (!isNative) {
-    const fl = files.map((f) => new File([f.bytes], f.name, { type: 'application/pdf' }));
+    const fl = files.map((f) => new File([f.bytes], f.name, { type: mimeOf(f.name) }));
     if (navigator.canShare && navigator.canShare({ files: fl })) await navigator.share({ files: fl });
     else files.forEach((f) => download(f.name, f.bytes));
     return;

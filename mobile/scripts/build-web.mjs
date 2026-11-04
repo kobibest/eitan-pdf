@@ -35,7 +35,7 @@ function copy(from, to) {
 fs.cpSync(path.join(MOBILE, 'web'), WWW, { recursive: true });
 
 // המנוע המשותף — כמו ש-src/renderer/index.html טוען אותו בדסקטופ
-for (const f of ['hebrew.js', 'textedit.js', 'ops.js', 'redact.js', 'compress.js', 'search.js']) copy(`src/core/${f}`, `core/${f}`);
+for (const f of ['hebrew.js', 'textedit.js', 'ops.js', 'redact.js', 'compress.js', 'search.js', 'docx.js', 'rasterize.js']) copy(`src/core/${f}`, `core/${f}`);
 
 // חתימה דיגיטלית: src/core/digisig.js נארז כמו שהוא לקובץ אחד שרץ ב-WebView (window.DigiSig).
 // pdf-lib ו-ops.js לא נארזים שוב — משתמשים באותם עותקים שכבר נטענים בדף (window.PDFLib, window.PdfOps).
@@ -71,6 +71,7 @@ await esbuild.build({
 copy('node_modules/pdf-lib/dist/pdf-lib.min.js', 'vendor/pdf-lib.min.js');
 copy('node_modules/@pdf-lib/fontkit/dist/fontkit.umd.min.js', 'vendor/fontkit.umd.min.js');
 copy('node_modules/bidi-js/dist/bidi.min.js', 'vendor/bidi.min.js');
+copy('node_modules/fflate/umd/index.js', 'vendor/fflate.min.js'); // ZIP לקובץ ה-Word
 // pdf.js: בניית legacy — עובדת גם ב-WebView שלא עודכן לאחרונה
 copy('node_modules/pdfjs-dist/legacy/build/pdf.min.mjs', 'vendor/pdfjs/pdf.min.mjs');
 copy('node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs');

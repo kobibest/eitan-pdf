@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   openImages: () => ipcRenderer.invoke('open-images'),
   readFile: (p) => ipcRenderer.invoke('read-file', p),
   writeFile: (target, bytes) => ipcRenderer.invoke('write-file', { target, bytes }),
-  saveAs: (defaultName, bytes, near) => ipcRenderer.invoke('save-as', { defaultName, bytes, near }),
+  saveAs: (defaultName, bytes, near, kind) => ipcRenderer.invoke('save-as', { defaultName, bytes, near, kind }),
   chooseFolder: (title) => ipcRenderer.invoke('choose-folder', title),
   writeFiles: (folder, files) => ipcRenderer.invoke('write-files', { folder, files }),
   readAsset: (rel) => ipcRenderer.invoke('read-asset', rel),

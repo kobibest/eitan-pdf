@@ -19,6 +19,9 @@ const SCRIPTS = [
   'src/core/redact.js',
   'src/core/compress.js',
   'src/core/search.js',
+  'node_modules/fflate/umd/index.js',
+  'src/core/docx.js',
+  'src/core/rasterize.js',
 ];
 
 async function run(fonts) {
@@ -30,7 +33,7 @@ async function run(fonts) {
   for (const rel of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(ROOT, rel), 'utf8'), ctx, { filename: rel });
 
   assert.strictEqual(vm.runInContext('typeof module', ctx), 'undefined');
-  for (const name of ['PDFLib', 'fontkit', 'HebrewPDF', 'TextEdit', 'PdfOps', 'Redact', 'Compress', 'PdfSearch']) {
+  for (const name of ['PDFLib', 'fontkit', 'HebrewPDF', 'TextEdit', 'PdfOps', 'Redact', 'Compress', 'PdfSearch', 'fflate', 'Docx', 'Rasterize']) {
     assert.ok(vm.runInContext(`typeof ${name}`, ctx) === 'object', `חסר ${name} במצב דפדפן`);
   }
   // מערכים נוצרים בתוך ההקשר — כמו בדפדפן אמיתי
@@ -48,6 +51,10 @@ async function run(fonts) {
     { fonts: { regular: bytes(fonts.regular), bold: bytes(fonts.bold) } },
   );
   assert.ok(out.length > 1000);
+  // המרה ל-Word במצב דפדפן: הטקסט שנכתב חוזר בסדר הנכון
+  const word = await vm.runInContext('(b) => Docx.convert(b)', ctx)(out);
+  const xml = Buffer.from(vm.runInContext('(z) => fflate.strFromU8(fflate.unzipSync(z)["word/document.xml"])', ctx)(word.bytes)).toString();
+  assert.ok(xml.includes('נבדק ב-'), 'הטקסט חסר ב-Word');
   assert.strictEqual(vm.runInContext('HebrewPDF.toVisual', ctx)('שלום 123'), '123 םולש');
   return Buffer.from(out);
 }

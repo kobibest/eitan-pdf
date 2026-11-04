@@ -535,8 +535,10 @@
    * קיבוץ גליפים לשורות. כל שורה: { glyphs, visual, box:[x0,y0,x1,y1], origin, angle, size, bold, color, ok }
    * visual — הטקסט כפי שהוא מצויר משמאל לימין (חזותי). ההמרה ללוגי נעשית ב-hebrew.js.
    */
-  function groupLines(glyphs) {
-    const usable = glyphs.filter((g) => g.Tr !== 3 && g.Tr !== 7 && g.size > 0.5);
+  function groupLines(glyphs, opts) {
+    // טקסט נסתר (Tr 3/7) — למשל שכבת OCR מתחת לסריקה — נכלל רק כשמבקשים (ההמרה ל-Word)
+    const hidden = opts && opts.hidden;
+    const usable = glyphs.filter((g) => (hidden || (g.Tr !== 3 && g.Tr !== 7)) && g.size > 0.5);
     // מסדרים לפי זווית וקו בסיס, בקואורדינטות מסובבות לכיוון השורה
     const items = usable.map((g) => {
       const c = Math.cos(-g.angle), s = Math.sin(-g.angle);
@@ -924,5 +926,9 @@
     });
   }
 
-  return { parseOps, analyzePage, groupLines, lineText, inferAlign, findLine, editFromLine, removeGlyphs, glyphsInBoxes, parseToUnicode };
+  return {
+    parseOps, analyzePage, groupLines, lineText, inferAlign, findLine, editFromLine, removeGlyphs, glyphsInBoxes, parseToUnicode,
+    // עזרים לקריאת מבנה העמוד (משמשים גם את ההמרה ל-Word)
+    lookup, num, nameOf, streamBytes, getResources, pageResources, pageContentBytes,
+  };
 });

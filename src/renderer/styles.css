@@ -268,8 +268,11 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--line-soft); padding: 3px; border-radius: var(--r-ctl); gap: 2px; }
 .segmented button { border: 0; background: none; height: 30px; border-radius: 6px; font-size: var(--fs-s); font-weight: 500; color: var(--ink-2); }
 .segmented button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(27,36,48,.15); }
-.pages-modes { grid-auto-columns: auto; }
+/* שישה מצבים: שתי שורות של שלושה, כדי שהכל ייכנס בלוח הצר */
+.pages-modes { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
 .pages-modes button { white-space: nowrap; padding: 0 6px; }
+/* המרה: עמודים שלא נבחרו */
+.grid .sheet.dim { opacity: 0.35; }
 
 .radio-list { display: flex; flex-direction: column; gap: 2px; }
 .radio-list label {
