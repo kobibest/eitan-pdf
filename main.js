@@ -19,6 +19,7 @@ app.setAppUserModelId('il.co.eitan-m.eitanpdf');
   app.setPath('userData', target);
 })();
 const integration = require('./src/main/win-integration.js');
+const toPdf = require('./src/main/topdf.js');
 const winCerts = require('./src/main/win-certs.js');
 const digisig = require('./src/core/digisig.js');
 
@@ -29,7 +30,7 @@ let closing = false;
 
 /* ---------- בקשות פתיחה (לחיצה כפולה, קליק ימני, כמה קבצים בבת אחת) ---------- */
 // Windows מפעיל את התוכנה פעם אחת לכל קובץ שנבחר. אוספים את כולם לבקשה אחת.
-const pending = { open: [], merge: [], split: [] };
+const pending = { open: [], merge: [], split: [], topdf: [] };
 let flushTimer = null;
 
 function parseArgs(argv) {
@@ -39,14 +40,22 @@ function parseArgs(argv) {
     if (a === '--merge') mode = 'merge';
     else if (a === '--split') mode = 'split';
     else if (a === '--open') mode = 'open';
+    else if (a === '--topdf') mode = 'topdf';
     else if (/\.pdf$/i.test(a)) files.push(path.resolve(a));
+    else if (toPdf.TOPDF_RE.test(a)) files.push(path.resolve(a));
+  }
+  // תמונה או Word בלי --topdf (למשל גרירה על קיצור הדרך) — גם הם עוברים המרה
+  if (mode !== 'topdf' && files.some((f) => !/\.pdf$/i.test(f))) {
+    const other = files.filter((f) => !/\.pdf$/i.test(f));
+    return { mode, files: files.filter((f) => /\.pdf$/i.test(f)), topdf: other };
   }
   return { mode, files };
 }
 
 function queue(argv) {
-  const { mode, files } = parseArgs(argv);
-  if (!files.length) return;
+  const { mode, files, topdf } = parseArgs(argv);
+  if (topdf && topdf.length) pending.topdf.push(...topdf);
+  if (!files.length && !(topdf && topdf.length)) return;
   pending[mode].push(...files);
   clearTimeout(flushTimer);
   flushTimer = setTimeout(flush, 700);
@@ -57,6 +66,24 @@ function flush() {
   for (const mode of ['merge', 'split', 'open']) {
     const paths = [...new Set(pending[mode].splice(0))];
     if (paths.length) win.webContents.send('open-request', { mode, paths });
+  }
+  const conv = [...new Set(pending.topdf.splice(0))];
+  if (conv.length) convertToPdf(conv);
+}
+
+/** קליק ימני "המרה ל-PDF": ממירים, שומרים ליד המקור ופותחים את התוצאה בתוכנה */
+async function convertToPdf(files) {
+  win.webContents.send('topdf-status', { working: true, count: files.length });
+  let res;
+  try {
+    res = await toPdf.convertFiles(files, require('./src/core/ops.js'));
+  } catch (e) {
+    res = { outputs: [], errors: [e.message] };
+  }
+  win.webContents.send('topdf-status', { working: false, outputs: res.outputs, errors: res.errors });
+  if (res.outputs.length) win.webContents.send('open-request', { mode: 'open', paths: res.outputs });
+  if (res.errors.length) {
+    dialog.showMessageBox(win, { type: 'warning', title: 'המרה ל-PDF', message: 'חלק מהקבצים לא הומרו', detail: res.errors.join('\n\n'), buttons: ['סגירה'] });
   }
 }
 

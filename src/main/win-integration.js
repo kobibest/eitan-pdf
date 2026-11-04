@@ -11,6 +11,9 @@ const VERBS = [
   { key: 'PdfIvrit.Merge', label: 'מיזוג באיתןPDF', arg: '--merge' },
   { key: 'PdfIvrit.Split', label: 'פיצול באיתןPDF', arg: '--split' },
 ];
+// קליק ימני על תמונות וקובצי Word: המרה ל-PDF
+const TOPDF_VERB = { key: 'PdfIvrit.ToPdf', label: 'המרה ל-PDF באיתןPDF', arg: '--topdf' };
+const TOPDF_EXTS = ['.jpg', '.jpeg', '.png', '.docx', '.doc', '.rtf', '.odt'];
 const THUMB_CLSID = '{6B0C5A9E-3F1D-4E8B-9A7C-2D5E1F4A8B30}';
 const THUMB_IID = '{e357fccd-a995-4576-b01f-234630154e96}';
 const PROGID = 'PdfIvrit.Document';
@@ -98,6 +101,7 @@ async function status() {
 
 async function setContext(on) {
   for (const v of VERBS) await del(`${ROOT}\\SystemFileAssociations\\.pdf\\shell\\${v.key}`);
+  for (const ext of TOPDF_EXTS) await del(`${ROOT}\\SystemFileAssociations\\${ext}\\shell\\${TOPDF_VERB.key}`);
   if (!on) return {};
   const inst = await ensureInstalled();
   for (const v of VERBS) {
@@ -109,6 +113,15 @@ async function setContext(on) {
     await add(k, 'MultiSelectModel', 'Player');
     const r = await add(`${k}\\command`, null, cmdLine(inst, v.arg));
     if (!r.ok) return { error: 'לא הצלחנו לרשום את התפריט ברישום של Windows.' };
+  }
+  // תמונות וקובצי Word: "המרה ל-PDF באיתןPDF" (כמה קבצים יחד — תמונות מתאחדות לקובץ אחד)
+  for (const ext of TOPDF_EXTS) {
+    const k = `${ROOT}\\SystemFileAssociations\\${ext}\\shell\\${TOPDF_VERB.key}`;
+    await add(k, null, TOPDF_VERB.label);
+    await add(k, 'MUIVerb', TOPDF_VERB.label);
+    await add(k, 'Icon', `"${inst.exe}",0`);
+    await add(k, 'MultiSelectModel', 'Player');
+    await add(`${k}\\command`, null, cmdLine(inst, TOPDF_VERB.arg));
   }
   return {};
 }

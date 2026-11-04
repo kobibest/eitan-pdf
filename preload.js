@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('api', {
   rendererReady: () => ipcRenderer.send('renderer-ready'),
   pathForFile: (file) => (webUtils && webUtils.getPathForFile ? webUtils.getPathForFile(file) : file.path),
   onOpenRequest: (cb) => ipcRenderer.on('open-request', (_e, req) => cb(req)),
+  onToPdf: (cb) => ipcRenderer.on('topdf-status', (_e, st) => cb(st)),
   onMenu: (cb) => ipcRenderer.on('menu', (_e, cmd) => cb(cmd)),
   onBeforeClose: (cb) => ipcRenderer.on('before-close', () => cb()),
 });

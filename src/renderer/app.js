@@ -3448,8 +3448,8 @@ async function renderWindows() {
     return c;
   };
   cards.append(
-    card('context', 'קליק ימני על קבצי PDF',
-      'בלחיצה ימנית על קובץ PDF אחד או כמה יופיעו "פתיחה", "מיזוג" ו"פיצול" באיתןPDF. מסמנים כמה קבצים ובוחרים "מיזוג" כדי לאחד אותם.',
+    card('context', 'קליק ימני בסייר הקבצים',
+      'בלחיצה ימנית על קובץ PDF אחד או כמה יופיעו "פתיחה", "מיזוג" ו"פיצול" באיתןPDF. על תמונות (JPG, PNG) וקובצי Word יופיע "המרה ל-PDF": הקובץ החדש נשמר ליד המקור ונפתח בתוכנה. כמה תמונות שנבחרו יחד הופכות לקובץ אחד. המרת Word נעשית דרך Microsoft Word או LibreOffice שמותקנים במחשב.',
       st.context, 'ב-Windows 11 הפעולות נמצאות תחת "הצגת אפשרויות נוספות".'),
     card('thumbs', 'תמונות ממוזערות בסייר הקבצים',
       'הסייר יציג את העמוד הראשון של כל קובץ PDF במקום אייקון, בתצוגת "סמלים גדולים".',
@@ -3550,6 +3550,20 @@ function wire() {
   }, { passive: true });
 
   // בקשות פתיחה מבחוץ: לחיצה כפולה על קובץ, קליק ימני (פתיחה/מיזוג/פיצול)
+  // המרה ל-PDF מקליק ימני: הודעה בזמן העבודה (Word יכול לקחת כמה שניות)
+  let topdfEl = null;
+  api.onToPdf((st) => {
+    if (st.working) {
+      if (!topdfEl) {
+        topdfEl = h(`<div class="busy"><div class="busy-card"><span class="spinner"></span><span></span></div></div>`);
+        document.body.append(topdfEl);
+      }
+      topdfEl.querySelector('.busy-card span:last-child').textContent = st.count > 1 ? `ממיר ${st.count} קבצים ל-PDF…` : 'ממיר ל-PDF…';
+    } else {
+      if (topdfEl) { topdfEl.remove(); topdfEl = null; }
+      if (st.outputs && st.outputs.length) toast(st.outputs.length === 1 ? 'נשמר PDF ליד הקובץ המקורי.' : `נשמרו ${st.outputs.length} קובצי PDF ליד הקבצים המקוריים.`, { action: { label: 'פתיחה בתיקייה', run: () => api.showInFolder(st.outputs[0]) } });
+    }
+  });
   api.onOpenRequest(async ({ mode, paths }) => {
     const entries = [];
     for (const p of paths) { try { entries.push(await api.readFile(p)); } catch (e) { toast(`לא הצלחנו לקרוא את ${p}`, { error: true }); } }
