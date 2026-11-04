@@ -224,6 +224,42 @@ async function makeForm() {
     fs.writeFileSync(path.join(OUT, 'edit-contract.pdf'), out);
   });
 
+  await ok('עריכה: גופן מהמחשב — נכתב בו, ואם חסרות בו אותיות — ב-IBM Plex עם אזהרה', async () => {
+    const src = FIX('הסכם שכירות.pdf');
+    const d = await PDFDocument.load(src);
+    const n = d.getPageCount();
+    const pages = Array.from({ length: n }, (_, i) => ({ src: 's', index: i }));
+    const fontsUsed = async (out) => {
+      const doc = await PDFDocument.load(out);
+      const names = [];
+      doc.context.enumerateIndirectObjects().forEach(([, o]) => { const b = o.get && o.get(require('pdf-lib').PDFName.of('BaseFont')); if (b) names.push(String(b)); });
+      return names.join(' ');
+    };
+    // "גופן מהמחשב" — כאן Alef, בשם משפחה אחר
+    const sysFonts = { ...editFonts, 'sys:Test Family': { regular: fonts.regular, bold: fonts.bold } };
+    const warn = [];
+    const e = await makeEdit(src, 0, 2, 'דמי השכירות יעמדו על 7,000 ש"ח', { font: 'sys:Test Family' });
+    const out = await Ops.buildDocument({ s: src }, pages, { 's:0': [e] }, {}, { fonts, editFonts: sysFonts, onWarning: (w) => warn.push(w) });
+    assert.ok(/Alef/.test(await fontsUsed(out)), 'הגופן שנבחר לא הוטמע');
+    assert.deepStrictEqual(warn, []);
+    // תו שאין ב-Alef אבל יש ב-Plex (½) → כל השורה ב-Plex, עם אזהרה
+    const e2 = await makeEdit(src, 0, 2, 'דמי השכירות: ½ מהסכום', { font: 'sys:Test Family' });
+    const out2 = await Ops.buildDocument({ s: src }, pages, { 's:0': [e2] }, {}, { fonts, editFonts: sysFonts, onWarning: (w) => warn.push(w) });
+    assert.ok(/Plex/.test(await fontsUsed(out2)), 'לא עבר ל-Plex');
+    assert.strictEqual(warn.length, 1, warn.join('\n'));
+    const after = await linesOf(out2, 0);
+    assert.ok(after.some((l) => l.text === 'דמי השכירות: ½ מהסכום'), after.map((l) => l.text).join('\n'));
+  });
+
+  await ok('גופני המחשב: זיהוי משפחה, משקל ועברית מתוך קובץ הגופן', () => {
+    const SF = require('../src/main/sysfonts.js');
+    const fk = require('@pdf-lib/fontkit');
+    const r = SF.describe(fk, fs.readFileSync(path.join(__dirname, '..', 'assets', 'fonts', 'IBMPlexSansHebrew-Bold.ttf')));
+    assert.strictEqual(r.family, 'IBM Plex Sans Hebrew');
+    assert.ok(r.weight >= 700 && !r.italic && r.hebrew && r.latin, JSON.stringify(r));
+    assert.strictEqual(SF.describe(fk, new Uint8Array([1, 2, 3])), null);
+  });
+
   await ok('עריכה: קבצי LibreOffice ו-Chromium (פסקה מיושרת, ₪, אנגלית)', async () => {
     fs.writeFileSync(path.join(OUT, 'edit-lo.pdf'), await checkEdit(FIX('libreoffice-letter.pdf'), 0, 2, 'הנדון: חשבונית מס\' 2026/119 על סך 9,870 ₪ (מעודכן)'));
     await checkEdit(FIX('libreoffice-letter.pdf'), 0, 4, 'להסכם מיום 3.1.2026 ובכפוף לתנאים בנספח ג\'.');

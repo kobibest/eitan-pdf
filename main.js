@@ -268,6 +268,12 @@ ipcMain.handle('read-asset', async (_e, rel) => {
   return new Uint8Array(await fs.readFile(path.join(__dirname, 'assets', safe)));
 });
 
+/* ---------- גופנים שמותקנים במחשב (לעריכת טקסט) ---------- */
+const sysfonts = require('./src/main/sysfonts.js');
+const fontsCache = () => path.join(app.getPath('userData'), 'fonts-cache.json');
+ipcMain.handle('list-fonts', () => sysfonts.list(fontsCache()).then((l) => l.map(({ family, hebrew, bold }) => ({ family, hebrew, bold: !!bold }))));
+ipcMain.handle('read-font', (_e, family, bold) => sysfonts.read(fontsCache(), String(family), !!bold));
+
 /* ---------- חתימה דיגיטלית ---------- */
 const PFX_FILTER = [{ name: 'קובצי תעודה', extensions: ['pfx', 'p12'] }];
 const certsDir = () => path.join(app.getPath('userData'), 'certs');

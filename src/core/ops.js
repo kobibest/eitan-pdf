@@ -348,11 +348,24 @@
     if (toRemove.length) TE.removeGlyphs(doc, page, analysis, toRemove);
 
     const cache = new Map();
-    const fontFor = async (e) => {
-      const fam = (o.editFonts && o.editFonts[e.font === 'alef' ? 'alef' : 'plex']) || o.fonts;
-      const key = (e.font === 'alef' ? 'alef' : 'plex') + (e.bold ? 'b' : '');
-      if (!cache.has(key)) cache.set(key, await H.embedFont(doc, e.bold && fam.bold ? fam.bold : fam.regular, fontkit));
+    const EF = o.editFonts || {};
+    const embed = async (id, bold) => {
+      const fam = EF[id] || (id === 'alef' ? EF.alef : EF.plex) || o.fonts;
+      const key = id + (bold ? '|b' : '');
+      if (!cache.has(key)) cache.set(key, await H.embedFont(doc, bold && fam.bold ? fam.bold : fam.regular, fontkit));
       return cache.get(key);
+    };
+    // e.font: 'plex' | 'alef' | 'sys:<משפחה>' (גופן מהמחשב, הקבצים ב-o.editFonts).
+    // גופן שחסרות בו אותיות של השורה (למשל בלי עברית) — השורה נכתבת ב-IBM Plex
+    const fontFor = async (e) => {
+      const id = (EF[e.font] || e.font === 'alef') ? e.font : 'plex';
+      const font = await embed(id, e.bold);
+      if (id === 'plex' || id === 'alef') return font;
+      const set = new Set(font.getCharacterSet ? font.getCharacterSet() : []);
+      const missing = set.size && [...String(e.text)].some((ch) => /\S/.test(ch) && !set.has(ch.codePointAt(0)));
+      if (!missing) return font;
+      if (o.onWarning) o.onWarning(`בגופן "${String(e.font).slice(4)}" אין חלק מהאותיות של השורה "${e.text}" — היא נכתבה ב-IBM Plex`);
+      return embed('plex', e.bold);
     };
     for (const e of changed) {
       const c = Math.cos(e.angle), s = Math.sin(e.angle);

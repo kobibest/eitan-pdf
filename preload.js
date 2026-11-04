@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('api', {
   chooseFolder: (title) => ipcRenderer.invoke('choose-folder', title),
   writeFiles: (folder, files) => ipcRenderer.invoke('write-files', { folder, files }),
   readAsset: (rel) => ipcRenderer.invoke('read-asset', rel),
+  listFonts: () => ipcRenderer.invoke('list-fonts'),
+  readFont: (family, bold) => ipcRenderer.invoke('read-font', family, bold),
   showInFolder: (p) => ipcRenderer.invoke('show-in-folder', p),
   openPath: (p) => ipcRenderer.invoke('open-path', p),
   appVersion: () => ipcRenderer.invoke('app-version'),

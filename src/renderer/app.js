@@ -1046,7 +1046,16 @@ function pageLines(p) {
       } catch (e) {
         console.warn('ניתוח הטקסט בעמוד נכשל', e);
       }
-      return { lines, base: lines.map((L) => TextEdit.editFromLine(L, lines)) };
+      await Promise.race([sysFonts().then((l) => { sysFontList = l; }), new Promise((r) => setTimeout(r, 1500))]);
+      return {
+        lines,
+        base: lines.map((L) => {
+          const e = TextEdit.editFromLine(L, lines);
+          const sys = e.font === 'alef' ? null : matchSysFont(e.fontName, window.HebrewPDF.hasRTL(e.text));
+          if (sys) e.font = sys;
+          return e;
+        }),
+      };
     })());
   }
   return lineCache.get(k);
@@ -1258,6 +1267,74 @@ function sampleBg(ctx, rect) {
   }
 }
 
+/* ---------- גופנים לעריכת טקסט: שניים שמגיעים עם התוכנה + כל מה שמותקן במחשב ---------- */
+const BUILTIN_FONTS = [{ id: 'plex', label: 'IBM Plex Sans Hebrew', css: "'Plex'" }, { id: 'alef', label: 'Alef', css: "'Alef'" }];
+let sysFontsP = null;
+/** רשימת גופני המחשב: [{ family, hebrew, bold }] (נטענת פעם אחת) */
+function sysFonts() {
+  if (!sysFontsP) sysFontsP = (window.api && window.api.listFonts ? window.api.listFonts() : Promise.resolve([])).catch((e) => { console.warn('רשימת הגופנים', e); return []; });
+  return sysFontsP;
+}
+let sysFontList = []; // אחרי הטעינה — לשימוש סינכרוני
+const isSysFont = (id) => typeof id === 'string' && id.startsWith('sys:');
+const fontLabel = (id) => (isSysFont(id) ? id.slice(4) : (BUILTIN_FONTS.find((f) => f.id === id) || BUILTIN_FONTS[0]).label);
+const cssQuote = (name) => '"' + String(name).replace(/["\\]/g, '') + '"';
+const fontCss = (id) => (isSysFont(id) ? `${cssQuote(id.slice(4))}, 'Plex'` : (BUILTIN_FONTS.find((f) => f.id === id) || BUILTIN_FONTS[0]).css);
+/** אם הגופן המקורי של השורה מותקן במחשב — ממשיכים בו */
+function matchSysFont(fontName, needHebrew) {
+  if (!fontName || !sysFontList.length || !window.Docx) return null;
+  const fam = window.Docx.fontFamily(fontName).toLowerCase();
+  const hit = sysFontList.find((f) => f.family.toLowerCase() === fam) || sysFontList.find((f) => f.family.toLowerCase() === fam.replace(/\s+(regular|bold|semibold|medium|light|black)$/i, ''));
+  return hit && (hit.hebrew || !needHebrew) ? 'sys:' + hit.family : null;
+}
+
+/** בוחר גופן: כפתור שפותח רשימה עם חיפוש. הגופנים שתומכים בעברית — ראשונים */
+function fontPicker(cur, needHebrew, onPick) {
+  const wrap = h(`<div class="font-pick"><button class="font-btn" aria-haspopup="listbox"><span></span>${icon('chevDown')}</button></div>`);
+  const btn = wrap.firstChild;
+  btn.firstChild.textContent = fontLabel(cur);
+  btn.firstChild.style.fontFamily = fontCss(cur);
+  btn.onclick = async () => {
+    const open = wrap.querySelector('.font-menu');
+    if (open) { open.remove(); return; }
+    const menu = h('<div class="font-menu"><input class="input" type="search" placeholder="חיפוש גופן" aria-label="חיפוש גופן"><div class="font-list" role="listbox"><p class="hint">טוען את הגופנים שבמחשב…</p></div></div>');
+    wrap.append(menu);
+    const search = menu.querySelector('input');
+    const listEl = menu.querySelector('.font-list');
+    search.focus();
+    const all = await sysFonts();
+    const item = (id, label, note) => {
+      const b = h(`<button role="option" aria-selected="${id === cur}"><span class="fn"></span>${note ? `<small>${note}</small>` : ''}</button>`);
+      b.firstChild.textContent = label;
+      b.firstChild.style.fontFamily = fontCss(id);
+      b.onclick = () => { menu.remove(); onPick(id); };
+      return b;
+    };
+    const draw = () => {
+      const q = search.value.trim().toLowerCase();
+      const m = (name) => !q || name.toLowerCase().includes(q);
+      listEl.innerHTML = '';
+      const sec = (title, items) => {
+        if (!items.length) return;
+        listEl.append(h(`<h3>${title}</h3>`));
+        items.forEach((x) => listEl.append(x));
+      };
+      sec('מגיעים עם התוכנה', BUILTIN_FONTS.filter((f) => m(f.label)).map((f) => item(f.id, f.label)));
+      sec('במחשב — עם עברית', all.filter((f) => f.hebrew && m(f.family)).map((f) => item('sys:' + f.family, f.family, f.bold ? '' : 'בלי מודגש')));
+      sec(needHebrew ? 'במחשב — בלי עברית (האותיות העבריות ייכתבו ב-IBM Plex)' : 'במחשב — בלי עברית', all.filter((f) => !f.hebrew && m(f.family)).map((f) => item('sys:' + f.family, f.family)));
+      if (!listEl.children.length) listEl.append(h('<p class="hint">לא נמצא גופן בשם הזה.</p>'));
+      listEl.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' });
+    };
+    search.oninput = draw;
+    search.onkeydown = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); menu.remove(); btn.focus(); }
+      if (e.key === 'Enter') { e.preventDefault(); listEl.querySelector('button')?.click(); }
+    };
+    draw();
+  };
+  return wrap;
+}
+
 /** עיצוב אלמנט שורה (תצוגה מקדימה או עורך) לפי פריט העריכה */
 function styleLine(wrap, inner, ctx, it, g) {
   const sizePx = it.size * ctx.scale;
@@ -1268,7 +1345,7 @@ function styleLine(wrap, inner, ctx, it, g) {
     justifyContent: it.align === 'right' ? 'flex-end' : it.align === 'center' ? 'center' : 'flex-start',
   });
   Object.assign(inner.style, {
-    fontFamily: it.font === 'alef' ? "'Alef'" : "'Plex'", fontWeight: it.bold ? '700' : '400',
+    fontFamily: fontCss(it.font), fontWeight: it.bold ? '700' : '400',
     fontSize: sizePx + 'px', lineHeight: lh + 'px', color: it.color, background: it.bg || '#ffffff',
   });
   inner.dir = window.HebrewPDF.hasRTL(it.text || it.original) ? 'rtl' : 'ltr';
@@ -1453,10 +1530,7 @@ function editPanel(panel) {
       const box = grp.querySelector('.tl-style');
       const set = (ch) => upsertEdit(ctx, sel.idx, { ...ch, restyled: true }, b);
       const keepFocus = (el) => el.addEventListener('pointerdown', (e) => e.preventDefault());
-      const fontSeg = h(`<div class="segmented" role="group" aria-label="פונט">
-        <button aria-pressed="${it.font !== 'alef'}" data-f="plex" style="font-family:'Plex'">IBM Plex</button>
-        <button aria-pressed="${it.font === 'alef'}" data-f="alef" style="font-family:'Alef'">Alef</button></div>`);
-      fontSeg.querySelectorAll('button').forEach((x) => { keepFocus(x); x.onclick = () => set({ font: x.dataset.f }); });
+      const fontSeg = fontPicker(it.font, window.HebrewPDF.hasRTL(it.text || b.original), (font) => set({ font }));
       const row = h('<div class="tl-row"></div>');
       const btn = (ic, label, on, fn) => { const x = h(`<button class="icon-btn ${on ? 'on' : ''}" title="${label}" aria-label="${label}" aria-pressed="${!!on}">${icon(ic)}</button>`); keepFocus(x); x.onclick = fn; return x; };
       row.append(
@@ -1518,7 +1592,7 @@ function editPanel(panel) {
   panel.append(h(`
     <div class="group">
       <h2>טוב לדעת</h2>
-      <p class="hint">עורכים שורה אחת בכל פעם. אם השורה החדשה ארוכה מהמקורית, הטקסט שאחריה לא זז. השורה נכתבת מחדש בפונט IBM Plex או Alef, בגודל ובצבע של המקור.</p>
+      <p class="hint">עורכים שורה אחת בכל פעם. אם השורה החדשה ארוכה מהמקורית, הטקסט שאחריה לא זז. השורה נכתבת מחדש בגודל ובצבע של המקור — בגופן המקורי אם הוא מותקן במחשב, ואחרת ב-IBM Plex. אפשר לבחור כל גופן שמותקן במחשב.</p>
     </div>`));
 }
 
@@ -2087,9 +2161,23 @@ async function buildBytes(pages, opts = {}) {
   const stamps = {};
   for (const [k, list] of Object.entries(S.stamps)) stamps[k] = list.filter((it) => it.type !== 'digisig');
   const redacted = pages.map((p, i) => [i, (stamps[p.key] || []).filter((it) => it.type === 'redact')]).filter(([, r]) => r.length);
+  // גופני מחשב שנבחרו לעריכת טקסט — נקראים מהדיסק רק כשצריך
+  const editFonts = { plex: S.plexFonts || S.fonts, alef: S.fonts };
+  for (const list of Object.values(stamps)) {
+    for (const it of list) {
+      if (it.type !== 'edit' || !isSysFont(it.font) || !window.api.readFont) continue;
+      const fam = it.font.slice(4);
+      try {
+        const f = editFonts[it.font] || (editFonts[it.font] = { regular: (await window.api.readFont(fam, false)).bytes });
+        if (it.bold && !f.bold) { const r = await window.api.readFont(fam, true); f.bold = r.bold ? r.bytes : f.regular; }
+      } catch (e) {
+        warnings.push(`הגופן "${fam}" לא נמצא במחשב — השורות שלו נכתבו ב-IBM Plex`);
+      }
+    }
+  }
   const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), stamps, S.formValues, {
     fonts: S.fonts,
-    editFonts: { plex: S.plexFonts || S.fonts, alef: S.fonts },
+    editFonts,
     // בהשחרה משטחים את הטפסים — אחרת הערכים נשארים בשדות שמתחת
     flattenForms: S.flattenForms || redacted.length > 0,
     watermark: ex.watermark.enabled ? ex.watermark : null,
