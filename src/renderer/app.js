@@ -89,19 +89,19 @@ const INK_COLORS = [
 
 /** הכלים בסרגל הימני. doc=true: דורש מסמך פתוח. panel=false: בלי לוח אפשרויות */
 const TOOLS = [
-  // לפי סדר העבודה: המסמך כולו (צפייה, עמודים) → התוכן (עריכה, הוספה, טפסים) → יציאה (דחיסה והמרה, ואבטחה אחרונה)
+  // לפי סדר העבודה: התוכן (מילוי ועריכה) → העמודים → יציאה (דחיסה והמרה, ואבטחה אחרונה).
+  // אין לשונית טפסים: שדות טופס ניתנים למילוי ישירות על הדף בכל תצוגה
   // צפייה היא מצב הבסיס: אין לה לשונית. לחיצה על לשונית פותחת את הלוח שלה, ולחיצה נוספת (או X) סוגרת וחוזרת לצפייה
   { id: 'view', label: 'צפייה', icon: 'eye', doc: true, panel: false, hidden: true },
-  { id: 'pages', label: 'עמודים', icon: 'grid', doc: true },
   // "מילוי ועריכה": שתי לשוניות בתוך הכלי — טקסט וחתימה (הוספה לעמוד) ועריכת הטקסט הקיים
   { id: 'sign', label: 'מילוי ועריכה', icon: 'sign', doc: true, group: ['sign', 'edit'] },
   { id: 'edit', label: 'עריכת טקסט', icon: 'textEdit', doc: true, hidden: true },
-  { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
+  { id: 'pages', label: 'עמודים', icon: 'grid', doc: true },
   { id: 'export', label: 'דחיסה והמרה', icon: 'export', doc: true },
   { id: 'security', label: 'אבטחה', icon: 'lock', doc: true },
   { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true, winOnly: true },
 ].filter((t) => !t.winOnly || !window.api || !window.api.platform || window.api.platform === 'win32');
-const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'edit', 'forms', 'security', 'export']);
+const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'edit', 'security', 'export']);
 
 const docs = new Map(); // id → מסמך
 let activeId = null;
@@ -178,7 +178,7 @@ function normalizeTool(t) {
   if (t === 'merge' || t === 'split' || t === 'arrange') return 'pages';
   if (t === 'extras') return 'sign';
   if (t === 'compress' || t === 'convert') { S.exportMode = t; return 'export'; }
-  if (t === 'folder') return 'view'; // כלי שהוסר
+  if (t === 'folder' || t === 'forms') return 'view'; // כלים שהוסרו (שדות הטופס נגישים בכל תצוגה)
   return t;
 }
 const inMerge = () => S.tool === 'pages';
@@ -2384,7 +2384,7 @@ function render() {
   } else {
     ({
       view: renderView, pages: renderPages, sign: renderSign, edit: renderEdit,
-      forms: renderForms, security: renderSecurity, windows: renderWindows, export: renderExport,
+      security: renderSecurity, windows: renderWindows, export: renderExport,
     })[S.tool]();
   }
   if (showPanel) panelHead(tool);
@@ -2753,7 +2753,7 @@ function refreshExtras() {
 }
 
 /* =========================================================
- * צפייה, טקסט וחתימה, טפסים — עמודים בגלילה
+ * צפייה, מילוי ועריכה — עמודים בגלילה
  * ======================================================= */
 let editorScrollTarget = null;
 function openInEditor(key) {
@@ -3008,40 +3008,34 @@ function signaturesGroup() {
 
 function renderSign() {
   const panel = $('#panel');
-  panel.append(fillTabs(), signTools(), signaturesGroup(), extrasGroup());
+  const fg = formsGroup();
+  panel.append(fillTabs(), ...(fg ? [fg] : []), signTools(), signaturesGroup(), extrasGroup());
   pageColumn();
 }
 
-function renderForms() {
-  const panel = $('#panel');
+/** בתוך "מילוי ועריכה", רק כשיש בקובץ שדות טופס: רשימת השדות (קפיצה לשדה) ונעילת הטופס בשמירה */
+function formsGroup() {
   const desk = $('#desk');
   const withFields = [...S.sources.values()].filter((s) => s.fields.length && S.pages.some((p) => p.src === s.id));
-  if (!withFields.length) {
-    panel.append(h('<div class="group"><h2>טפסים</h2><p class="hint">אין במסמך הזה שדות טופס למילוי. כדי לכתוב על טופס סרוק או רגיל, השתמשו ב"טקסט וחתימה".</p></div>'));
-    const b = h(`<button class="btn btn-block">${icon('text')}מעבר לטקסט וחתימה</button>`);
-    b.onclick = () => setView('sign');
-    panel.firstElementChild.append(b);
-  } else {
-    const fg = h(`<div class="group"><h2>שדות טופס</h2><p class="hint">ממלאים ישירות על הדף, או בוחרים שדה מהרשימה כדי לקפוץ אליו.</p><div class="field-list"></div>
-      <label class="check"><input type="checkbox" ${S.flattenForms ? 'checked' : ''}><span>נעילת הטופס בשמירה<small>השדות יהפכו לטקסט רגיל שלא ניתן לשנות</small></span></label></div>`);
-    const list = fg.querySelector('.field-list');
-    for (const s of withFields) {
-      for (const f of s.fields) {
-        const v = fieldValue(s.id, f);
-        const shown = f.type === 'CheckBox' ? (v ? 'מסומן' : 'לא מסומן') : v || 'ריק';
-        const b = h(`<button><span class="fname">${esc(f.name)}</span><span class="fval ${v ? '' : 'none'}">${esc(shown)}</span></button>`);
-        b.onclick = () => {
-          const inp = desk.querySelector(`[data-field="${CSS.escape(s.id + '|' + f.name)}"]`);
-          if (inp) { inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); inp.focus({ preventScroll: true }); }
-          else { editorScrollTarget = `${s.id}:${f.page}`; scrollToEditorPage(); }
-        };
-        list.append(b);
-      }
+  if (!withFields.length) return null;
+  const fg = h(`<div class="group"><h2>שדות טופס</h2><p class="hint">ממלאים ישירות על הדף. בחירת שדה מהרשימה קופצת אליו.</p><div class="field-list"></div>
+    <label class="check"><input type="checkbox" ${S.flattenForms ? 'checked' : ''}><span>נעילת הטופס בשמירה<small>השדות יהפכו לטקסט רגיל שלא ניתן לשנות</small></span></label></div>`);
+  const list = fg.querySelector('.field-list');
+  for (const s of withFields) {
+    for (const f of s.fields) {
+      const v = fieldValue(s.id, f);
+      const shown = f.type === 'CheckBox' ? (v ? 'מסומן' : 'לא מסומן') : v || 'ריק';
+      const b = h(`<button><span class="fname">${esc(f.name)}</span><span class="fval ${v ? '' : 'none'}">${esc(shown)}</span></button>`);
+      b.onclick = () => {
+        const inp = desk.querySelector(`[data-field="${CSS.escape(s.id + '|' + f.name)}"]`);
+        if (inp) { inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); inp.focus({ preventScroll: true }); }
+        else { editorScrollTarget = `${s.id}:${f.page}`; scrollToEditorPage(); }
+      };
+      list.append(b);
     }
-    fg.querySelector('input').onchange = (e) => { S.flattenForms = e.target.checked; markDirty(); };
-    panel.append(fg);
   }
-  pageColumn();
+  fg.querySelector('input').onchange = (e) => { S.flattenForms = e.target.checked; markDirty(); };
+  return fg;
 }
 
 /* =========================================================
