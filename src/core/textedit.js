@@ -226,13 +226,21 @@
   /** שמות גליפים נפוצים → Unicode (לפונטים בלי ToUnicode) */
   function glyphNameToUnicode(name) {
     if (!name) return null;
+    // וריאנט של גליף ("parenleft.loclIWR", "a.sc") — אותו תו
+    if (/^[^.]+\.[\w.]+$/.test(name)) return glyphNameToUnicode(name.split('.')[0]);
     let m = name.match(/^uni([0-9A-Fa-f]{4,})$/);
     if (m) return String.fromCharCode(...m[1].match(/.{4}/g).map((h) => parseInt(h, 16)));
     m = name.match(/^u([0-9A-Fa-f]{4,6})$/);
     if (m) return String.fromCodePoint(parseInt(m[1], 16));
     m = name.match(/^afii(5766[4-9]|576[7-8]\d|5769[0])$/); // א..ת
     if (m) return String.fromCharCode(0x5d0 + (+m[1] - 57664));
-    const basic = { space: ' ', period: '.', comma: ',', hyphen: '-', colon: ':', semicolon: ';', parenleft: '(', parenright: ')', quotedbl: '"', quotesingle: "'", slash: '/', percent: '%' };
+    const basic = {
+      space: ' ', period: '.', comma: ',', hyphen: '-', colon: ':', semicolon: ';', parenleft: '(', parenright: ')', quotedbl: '"', quotesingle: "'", slash: '/', percent: '%',
+      endash: '–', emdash: '—', quoteleft: '‘', quoteright: '’', quotedblleft: '“', quotedblright: '”', bullet: '•', ellipsis: '…',
+      exclam: '!', question: '?', ampersand: '&', plus: '+', equal: '=', asterisk: '*', at: '@', numbersign: '#', dollar: '$',
+      bracketleft: '[', bracketright: ']', braceleft: '{', braceright: '}', less: '<', greater: '>', underscore: '_', bar: '|',
+      backslash: '\\', degree: '°', sheqel: '₪', newsheqelsign: '₪', afii57636: '₪', geresh: '׳', gershayim: '״', maqaf: '־',
+    };
     if (basic[name]) return basic[name];
     if (/^[A-Za-z]$/.test(name)) return name;
     const digits = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
@@ -358,6 +366,7 @@
     return out;
   }
 
+  const WIN_PUNCT = { 133: '…', 145: '‘', 146: '’', 147: '“', 148: '”', 149: '•', 150: '–', 151: '—' };
   function unicodeOf(info, code) {
     const hex = code.toString(16).padStart(info.bytes * 2, '0');
     if (info.toU && info.toU.has(hex)) return info.toU.get(hex);
@@ -366,6 +375,8 @@
       if (u != null) return u;
     }
     if (info.stdCodes && info.stdCodes.has(code)) return info.stdCodes.get(code).u;
+    // קוד בלי שם ובלי מפה בטווח הפיסוק של WinAnsi (מירכאות, מקפים) — כך מציירים אותו כמעט כל הגופנים
+    if (info.bytes === 1 && WIN_PUNCT[code]) return WIN_PUNCT[code];
     if (info.bytes === 1 && code >= 32 && code < 127 && !info.toU) return String.fromCharCode(code);
     return '�';
   }

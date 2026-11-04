@@ -2062,12 +2062,13 @@ async function doConvert(pages) {
     const built = await busy('מכין את הקובץ…', () => buildBytes(S.pages));
     pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: built.slice() }).promise;
     if (c.to === 'word') {
+      const images = window.Rasterize.wordImages(pdf, { pdfjsLib, open: (b) => pdfjsLib.getDocument({ ...PDFJS_OPTS, data: b.slice() }).promise });
       const r = await busy('ממיר ל-Word…', () => window.Docx.convert(built, {
         pages,
         title: base,
-        onProgress: (k, n) => busyText(`ממיר ל-Word… עמוד ${k} מתוך ${n}`),
-        renderImage: (req) => window.Rasterize.renderRegion(pdf, req.pageIndex, req.box, { dpi: req.dpi, format: req.photo ? 'jpeg' : 'png', pdfjsLib }),
-      }));
+        onProgress: (k, n) => busyText(`ממיר ל-Word… עמוד ${Math.ceil(k)} מתוך ${n}`),
+        renderImage: images,
+      }).finally(() => images.close()));
       const path = await api.saveAs(`${base}.docx`, r.bytes, d.path, 'docx');
       if (!path) return;
       const notes = [];

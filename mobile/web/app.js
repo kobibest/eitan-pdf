@@ -830,11 +830,16 @@ async function convertWord() {
   try {
     const built = await buildBytes({ protect: false });
     pdf = await openPdf(built);
-    r = await window.Docx.convert(built, {
-      title: D.name,
-      onProgress: (k, n) => { $('#busy-text').textContent = `ממיר ל-Word… עמוד ${k} מתוך ${n}`; },
-      renderImage: (q) => window.Rasterize.renderRegion(pdf, q.pageIndex, q.box, { dpi: Math.min(q.dpi, 150), format: q.photo ? 'jpeg' : 'png', pdfjsLib, limits: PHONE_LIMITS }),
-    });
+    const images = window.Rasterize.wordImages(pdf, { pdfjsLib, open: openPdf, limits: PHONE_LIMITS, maxDpi: 150 });
+    try {
+      r = await window.Docx.convert(built, {
+        title: D.name,
+        onProgress: (k, n) => { $('#busy-text').textContent = `ממיר ל-Word… עמוד ${Math.ceil(k)} מתוך ${n}`; },
+        renderImage: images,
+      });
+    } finally {
+      await images.close();
+    }
   } catch (err) {
     console.error(err);
     toast('ההמרה נכשלה.', { error: true });

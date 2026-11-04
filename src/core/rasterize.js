@@ -215,5 +215,25 @@
     }
   }
 
-  return { renderPage, renderLong, renderRegion, setDpi, crc32, pageNames, LIMITS };
+  /**
+   * הפונקציה שההמרה ל-Word (Docx.convert) מקבלת כ-renderImage.
+   * pdf — המסמך הפתוח; open(bytes) — פותח מסמך נוסף ב-pdf.js (העותק עם הגרפיקה בלבד, לתמונות רקע).
+   * close() סוגר את המסמכים הנוספים בסוף.
+   */
+  function wordImages(pdf, { pdfjsLib, open, limits, maxDpi } = {}) {
+    const extra = new Map();
+    const fn = async (q) => {
+      let src = pdf;
+      if (q.pdf) {
+        if (!extra.has(q.pdf)) extra.set(q.pdf, open(q.pdf));
+        src = await extra.get(q.pdf);
+      }
+      const dpi = maxDpi ? Math.min(q.dpi, maxDpi) : q.dpi;
+      return renderRegion(src, q.pageIndex, q.box, { dpi, format: q.photo ? 'jpeg' : 'png', quality: 0.85, pdfjsLib, limits });
+    };
+    fn.close = async () => { for (const p of extra.values()) { try { (await p).destroy(); } catch (e) { /* כבר נסגר */ } } };
+    return fn;
+  }
+
+  return { renderPage, renderLong, renderRegion, wordImages, setDpi, crc32, pageNames, LIMITS };
 });

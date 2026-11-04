@@ -685,7 +685,8 @@ async function makeForm() {
     assert.strictEqual(r.stats.textPages, 3);
     assert.ok(paras.includes('הסכם שכירות בלתי מוגנת'), 'הכותרת');
     assert.ok(/<w:pStyle w:val="Heading1"\/>[\s\S]*?הסכם שכירות בלתי מוגנת/.test(xml), 'הכותרת מסומנת כ-Heading1');
-    const p1 = paras.find((t) => t.startsWith('1. דמי השכירות'));
+    // פריט ממוספר: טאב אחרי המספר (מיושר לרווח התלוי)
+    const p1 = paras.map((t) => t.replace('\t', ' ')).find((t) => t.startsWith('1. דמי השכירות'));
     assert.ok(p1, 'פסקה 1');
     // שתי שורות במקור — פסקה אחת ב-Word, עם המספרים במקום
     assert.ok(p1.includes('6,450 ש"ח (שישה אלף ארבע מאות וחמישים שקלים חדשים)'), p1);
@@ -694,8 +695,8 @@ async function makeForm() {
     // מספרים ואנגלית בקטע נפרד, בלי rtl
     assert.ok(/<w:r>(?:(?!<w:r>).)*?<w:t xml:space="preserve">office@example\.co\.il<\/w:t>/.test(xml));
     assert.ok(!/<w:rtl\/><\/w:rPr><w:t xml:space="preserve">office@example/.test(xml));
-    // שלושה עמודים → שלושה מקטעים (שניים בפסקאות + אחד בסוף)
-    assert.strictEqual((xml.match(/<w:sectPr>/g) || []).length, 3);
+    // שלושה עמודים רגילים באותו גודל — זורמים ברצף במקטע אחד (שורה שגולשת לא יוצרת עמוד ריק)
+    assert.strictEqual((xml.match(/<w:sectPr>/g) || []).length, 1);
   });
 
   await ok('Word: הדגשה בתוך שורה נשמרת ("הנדון:" מודגש, השאר רגיל)', async () => {
@@ -754,6 +755,118 @@ async function makeForm() {
     p.node.set(P.PDFName.of('Contents'), d.context.register(d.context.stream('BT /F1 12 Tf 20 100 Td <00410042> Tj ET')));
     const w = await toWord(await d.save(), 'word-unreadable.docx');
     assert.strictEqual(w.r.stats.unreadable, 1);
+  });
+
+  /** עמוד A4 עם גרפיקה (draw על עמוד pdf-lib) וטקסט עברי (חותמות טקסט של התוכנה, קואורדינטות מלמעלה) */
+  async function pageWith(draw, texts) {
+    const d = await PDFDocument.create();
+    const pg = d.addPage([595, 842]);
+    draw(pg);
+    const stamps = texts.map(([x, y, w, text, extra]) => ({ type: 'text', x, y, w, size: 11, color: '#000000', text, align: 'right', ...(extra || {}) }));
+    return Ops.buildDocument({ a: await d.save() }, [{ src: 'a', index: 0 }], { 'a:0': stamps }, {}, { fonts });
+  }
+
+  await ok('Word: כותרת תחתונה עם מספר עמוד הופכת לשדות של Word, והלוגו/הכותרת לא חוזרים בגוף', async () => {
+    const { zip, xml } = await toWord(fixture('הסכם שכירות.pdf'), 'word-footer.docx');
+    const ftr = strFromU8(zip['word/footer1.xml']);
+    assert.ok(ftr.includes('w:instr=" PAGE "') && ftr.includes('w:instr=" NUMPAGES "'), ftr);
+    assert.ok(!/עמוד <\/w:t>|מתוך/.test(xml.replace(/<w:ftr[\s\S]*<\/w:ftr>/, '')), 'מספור העמודים נשאר בגוף');
+    assert.ok(xml.includes('w:footerReference'));
+  });
+
+  await ok('Word: טבלה עם קווים — רשת, תא ממוזג לרוחב, רקע אפור, טקסט בכל תא', async () => {
+    const { rgb } = P;
+    const xs = [100, 250, 400, 500], ys = [742, 712, 682, 652];
+    const out = await pageWith((pg) => {
+      pg.drawRectangle({ x: 100, y: 712, width: 400, height: 30, color: rgb(0.85, 0.85, 0.85) });
+      for (const y of ys) pg.drawLine({ start: { x: 100, y }, end: { x: 500, y }, thickness: 0.75 });
+      for (const x of xs) pg.drawLine({ start: { x, y: x === 250 ? 712 : 742 }, end: { x, y: 652 }, thickness: 0.75 }); // בשורה הראשונה אין קו ב-250
+    }, [
+      [260, 108, 235, 'מחירון פירות'],
+      [405, 138, 90, 'תפוח'], [255, 138, 140, '5'], [105, 138, 140, 'ירוק'],
+      [405, 168, 90, 'בננה'], [255, 168, 140, '7'], [105, 168, 140, 'צהוב'],
+    ]);
+    const { xml, r } = await toWord(out, 'word-ruled.docx');
+    assert.strictEqual(r.stats.tables, 1);
+    const tbl = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/)[0];
+    assert.strictEqual((tbl.match(/<w:gridCol /g) || []).length, 3);
+    assert.strictEqual((tbl.match(/<w:tr>/g) || []).length, 3);
+    assert.ok(/<w:gridSpan w:val="2"\/>/.test(tbl), 'תא ממוזג');
+    assert.ok(/<w:shd [^>]*w:fill="D9D9D9"/.test(tbl), 'רקע');
+    assert.ok(/w:color="000000"/.test(tbl), 'קווי טבלה');
+    const row = (k) => [...tbl.match(/<w:tr>[\s\S]*?<\/w:tr>/g)[k].matchAll(/<w:tc>([\s\S]*?)<\/w:tc>/g)].map((c) => [...c[1].matchAll(/<w:t[^>]*>([^<]*)</g)].map((t) => t[1]).join(''));
+    // מימין לשמאל: הטור הימני ראשון
+    assert.deepStrictEqual(row(1), ['תפוח', '5', 'ירוק']);
+    assert.deepStrictEqual(row(2), ['בננה', '7', 'צהוב']);
+    assert.ok(row(0).some((t) => t.includes('מחירון פירות')));
+  });
+
+  await ok('Word: תבליטים הופכים לרשימה של Word עם רווח תלוי, ושורת ההמשך מתחברת לפריט', async () => {
+    const out = await pageWith(() => {}, [
+      [60, 100, 480, 'פתיחה רגילה לפני הרשימה.'],
+      [60, 130, 480, '• פריט ראשון ארוך שממשיך בשורה הבאה ומגיע עד הקצה השמאלי של העמוד בערך'],
+      [60, 145, 462, 'וזה ההמשך של הפריט הראשון.'],
+      [60, 160, 480, '• פריט שני קצר.'],
+    ]);
+    const { xml, zip, paras } = await toWord(out, 'word-list.docx');
+    assert.ok(zip['word/numbering.xml'], 'אין numbering.xml');
+    assert.ok(strFromU8(zip['word/numbering.xml']).includes('w:lvlText w:val="•"'));
+    const items = [...xml.matchAll(/<w:p><w:pPr>(?:(?!<\/w:pPr>).)*<w:numPr>[\s\S]*?<\/w:p>/g)].map((m) => m[0]);
+    assert.strictEqual(items.length, 2, xml);
+    assert.ok(/w:hanging="\d+"/.test(items[0]));
+    const first = paras.find((t) => t.startsWith('פריט ראשון'));
+    assert.ok(first && first.includes('וזה ההמשך של הפריט הראשון'), paras.join('\n'));
+    assert.ok(!paras.some((t) => t.startsWith('•')), 'סימן התבליט נשאר בטקסט');
+  });
+
+  await ok('Word: שדה שמולא על קו ("שם: ____" ומעליו שם) — בלי קווים בתוך השם, עם קו תחתון', async () => {
+    const out = await pageWith(() => {}, [
+      [300, 100, 240, 'שם: ________________________'],
+      [330, 100, 150, 'ישראל ישראלי', { align: 'center' }],
+    ]);
+    const { xml, paras } = await toWord(out, 'word-field.docx');
+    const p = paras.find((t) => t.includes('שם:'));
+    assert.ok(p && p.includes('ישראל ישראלי') && !/[א-ת]_|_[א-ת]/.test(p), p);
+    assert.ok(/<w:u w:val="single"\/>(?:(?!<w:t).)*<w:t xml:space="preserve">ישראל/.test(xml), 'אין קו תחתון לשם');
+  });
+
+  await ok('Word: עמוד מעוצב — רקע (גרפיקה בלי טקסט) מאחורי תיבות טקסט במקום המדויק', async () => {
+    const { rgb } = P;
+    const out = await pageWith((pg) => {
+      pg.drawRectangle({ x: 0, y: 500, width: 595, height: 342, color: rgb(0.1, 0.3, 0.7) });
+      pg.drawRectangle({ x: 60, y: 100, width: 200, height: 200, color: rgb(0.9, 0.8, 0.2) });
+    }, [[60, 60, 480, 'כותרת על רקע כחול'], [300, 400, 240, 'טקסט בחלק הלבן']]);
+    const asked = [];
+    let stripped = null;
+    const r = await Docx.convert(out, { renderImage: async (q) => { asked.push(q); if (q.pdf) stripped = q.pdf; return { bytes: PNG1, type: 'png' }; } });
+    fs.writeFileSync(path.join(OUT, 'word-designed.docx'), r.bytes);
+    assert.strictEqual(r.stats.designedPages, 1);
+    const xml = strFromU8(unzipSync(r.bytes)['word/document.xml']);
+    assert.ok(xml.includes('behindDoc="1"'), 'אין רקע');
+    assert.strictEqual((xml.match(/<wps:txbx>/g) || []).length, 2);
+    assert.ok(xml.includes('כותרת על רקע כחול'));
+    // תמונת הרקע מצוירת מעותק בלי טקסט, שבו הגרפיקה נשארה
+    assert.ok(stripped && asked.some((q) => q.full && q.pdf));
+    const sd = await PDFDocument.load(stripped);
+    assert.strictEqual(T.groupLines(T.analyzePage(sd, sd.getPage(0)).glyphs).length, 0, 'נשאר טקסט ברקע');
+    assert.ok(Docx._internal.scanGraphics(sd, sd.getPage(0)).fills.length >= 2, 'הגרפיקה נעלמה');
+  });
+
+  await ok('קריאת טקסט: שם גליף עם סיומת וריאנט (parenleft.loclIWR) וקודי פיסוק בלי שם', () => {
+    const cmap = T.parseToUnicode; // נוכחות
+    assert.ok(cmap);
+    // דרך המנוע: גופן Type1 עם Differences
+    return (async () => {
+      const d = await PDFDocument.create();
+      const p = d.addPage([300, 200]);
+      const f = d.context.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica', FirstChar: 32, LastChar: 160, Widths: Array(129).fill(500),
+        Encoding: { Type: 'Encoding', Differences: [40, 'parenleft.loclIWR', 'afii57664'] } });
+      p.node.set(P.PDFName.of('Resources'), d.context.obj({ Font: { F1: d.context.register(f) } }));
+      p.node.set(P.PDFName.of('Contents'), d.context.register(d.context.stream('BT /F1 12 Tf 20 100 Td <28299396> Tj ET')));
+      const doc = await PDFDocument.load(await d.save());
+      const L = T.groupLines(T.analyzePage(doc, doc.getPage(0)).glyphs);
+      assert.strictEqual(L[0].visual, '(א“–'); // 0x93 = “, 0x96 = –
+    })();
   });
 
   await ok('Word: פיצול לפי כתב ושמות גופנים', () => {
