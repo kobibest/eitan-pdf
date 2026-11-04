@@ -616,9 +616,15 @@
       const all = [];
       // vmap: לכל תו ב-visual — האינדקס של הגליף שלו ב-glyphs (או -1 לרווח שנוסף כאן). משמש לחיפוש
       let vmap = [];
-      for (const it of L.items) {
+      for (let ii = 0; ii < L.items.length; ii++) {
+        const it = L.items[ii];
         const sz = it.g.size;
-        if (prevEnd != null && it.u - prevEnd > sz * 0.2 && !/\s$/.test(visual) && !/^\s/.test(it.g.u)) { visual += ' '; vmap.push(-1); }
+        // רווח שהתו הבא מצויר כמעט עליו (רוחב אפס בפועל) — לא רווח בטקסט
+        const nx = L.items[ii + 1];
+        // (רק כשגם בלי הרווח הטקסט רציף: התו שלפני נגמר בדיוק איפה שהבא מתחיל)
+        if (/^\s$/.test(it.g.u) && nx && !/^\s/.test(nx.g.u) && nx.u < it.u + it.g.advUser * 0.3 && !it.marks
+          && prevEnd != null && Math.abs(nx.u - prevEnd) < sz * 0.15) continue;
+        if (prevEnd != null && it.u - prevEnd > sz * 0.12 && !/\s$/.test(visual) && !/^\s/.test(it.g.u)) { visual += ' '; vmap.push(-1); }
         const gi = all.length + (it.marks ? it.marks.length : 0);
         visual += it.g.u;
         for (let k = 0; k < it.g.u.length; k++) vmap.push(gi);
@@ -940,6 +946,6 @@
   return {
     parseOps, analyzePage, groupLines, lineText, inferAlign, findLine, editFromLine, removeGlyphs, glyphsInBoxes, parseToUnicode,
     // עזרים לקריאת מבנה העמוד (משמשים גם את ההמרה ל-Word)
-    lookup, num, nameOf, streamBytes, getResources, pageResources, pageContentBytes,
+    lookup, num, nameOf, streamBytes, getResources, pageResources, pageContentBytes, glyphNameToUnicode,
   };
 });

@@ -20,6 +20,7 @@ const SCRIPTS = [
   'src/core/compress.js',
   'src/core/search.js',
   'node_modules/fflate/umd/index.js',
+  'src/core/fontembed.js',
   'src/core/docx.js',
   'src/core/rasterize.js',
 ];
@@ -33,7 +34,7 @@ async function run(fonts) {
   for (const rel of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(ROOT, rel), 'utf8'), ctx, { filename: rel });
 
   assert.strictEqual(vm.runInContext('typeof module', ctx), 'undefined');
-  for (const name of ['PDFLib', 'fontkit', 'HebrewPDF', 'TextEdit', 'PdfOps', 'Redact', 'Compress', 'PdfSearch', 'fflate', 'Docx', 'Rasterize']) {
+  for (const name of ['PDFLib', 'fontkit', 'HebrewPDF', 'TextEdit', 'PdfOps', 'Redact', 'Compress', 'PdfSearch', 'fflate', 'FontEmbed', 'Docx', 'Rasterize']) {
     assert.ok(vm.runInContext(`typeof ${name}`, ctx) === 'object', `חסר ${name} במצב דפדפן`);
   }
   // מערכים נוצרים בתוך ההקשר — כמו בדפדפן אמיתי

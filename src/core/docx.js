@@ -16,11 +16,11 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('pdf-lib'), require('./hebrew.js'), require('./textedit.js'), require('fflate'));
+    module.exports = factory(require('pdf-lib'), require('./hebrew.js'), require('./textedit.js'), require('fflate'), require('./fontembed.js'));
   } else {
-    root.Docx = factory(root.PDFLib, root.HebrewPDF, root.TextEdit, root.fflate);
+    root.Docx = factory(root.PDFLib, root.HebrewPDF, root.TextEdit, root.fflate, root.FontEmbed);
   }
-})(typeof self !== 'undefined' ? self : this, function (PDFLib, H, TE, fflate) {
+})(typeof self !== 'undefined' ? self : this, function (PDFLib, H, TE, fflate, FontEmbed) {
   'use strict';
 
   const { PDFDocument, PDFName, PDFArray, PDFStream } = PDFLib;
@@ -273,7 +273,13 @@
         if (f) cl.shade = hex(f.color);
         cl.glyphs = [];
       }
-      tables.push({ xs, ys, rows, cols, cells, box: [xs[0], ys[rows], xs[cols], ys[0]] });
+      const box = [xs[0], ys[rows], xs[cols], ys[0]];
+      // רקע צבוע בתוך הטבלה שהקצוות שלו לא על קווי הרשת (כותרת מצוירת כמלבנים, לא כקווים) —
+      // המבנה של הטבלה לא נקרא במלואו, ובזרימה רגילה היא תצא שונה מהמקור
+      const nearAny = (v, arr) => arr.some((a) => Math.abs(a - v) < 3);
+      const misfit = g.fills.some((f) => f.box[0] >= box[0] - 2 && f.box[2] <= box[2] + 2 && f.box[1] >= box[1] - 2 && f.box[3] <= box[3] + 2
+        && !(nearAny(f.box[0], xs) && nearAny(f.box[2], xs) && nearAny(f.box[1], ys) && nearAny(f.box[3], ys)));
+      tables.push({ xs, ys, rows, cols, cells, box, misfit });
     }
     // טבלה בתוך טבלה (מסגרת חיצונית) — משאירים את הפנימית הגדולה ביותר... פשוט: מוותרים על חופפות
     return tables.filter((t, i) => !tables.some((o, j) => j !== i && o.box[0] <= t.box[0] + 1 && o.box[2] >= t.box[2] - 1
@@ -296,20 +302,27 @@
   function fontFamily(name) {
     if (fontCache.has(name)) return fontCache.get(name);
     let n = String(name || '').replace(/^[A-Z]{6}\+/, '');
-    n = n.split(/[,-]/)[0].replace(/(PS)?MT$/, '').replace(/PS$/, '');
+    // "Arial-BoldMT" → בסיס "Arial", סגנון "BoldMT". משקלים שאינם רגיל/מודגש/נטוי (Medium, Black, U…)
+    // נשארים חלק משם המשפחה — כך Windows קורא להם, וכך גופן מוטמע במשקל כזה לא מתערבב עם הרגיל
+    const cut = n.search(/[,-]/);
+    const baseRaw = (cut >= 0 ? n.slice(0, cut) : n).replace(/(PS)?MT$/, '').replace(/PS$/, '');
+    const styleRaw = cut >= 0 ? n.slice(cut + 1) : '';
+    const words = styleRaw.replace(/(Semi|Demi|Extra|Ultra)[\s-]?(Bold|Light)/gi, '$1$2').replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/(Semi|Demi|Extra|Ultra) (Bold|Light)/g, '$1$2').split(/[\s,-]+/).filter(Boolean)
+      .filter((w) => !/^(Bold|Italic|Oblique|Regular|Roman|MT|PS|PSMT|BoldMT|ItalicMT|BoldItalicMT|Book|Normal)$/i.test(w));
     const keyOf = (v) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const full = keyOf(n);
-    n = n.replace(/(Bold|Italic|Oblique|Regular|Medium|Light|SemiBold|Semibold|Black|Heavy|Book|Roman)+$/, '') || n;
-    const key = keyOf(n);
-    let fam;
-    if (KNOWN_FONTS[full]) fam = KNOWN_FONTS[full];
-    else if (KNOWN_FONTS[key]) fam = KNOWN_FONTS[key];
-    else if (!n || /^(F|T|TT|C)\d+/i.test(n) || /^\d/.test(n) || n.length < 3) fam = 'Arial';
-    else fam = n.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').trim();
+    let base = baseRaw.replace(/(Bold|Italic|Oblique|Regular|Roman)+$/, '') || baseRaw;
+    let fam, fallback = false;
+    if (KNOWN_FONTS[keyOf(baseRaw)]) fam = KNOWN_FONTS[keyOf(baseRaw)];
+    else if (KNOWN_FONTS[keyOf(base)]) fam = KNOWN_FONTS[keyOf(base)];
+    else if (!base || /^(F|T|TT|C)\d+/i.test(base) || /^\d/.test(base) || base.length < 3) { fam = 'Arial'; fallback = true; }
+    else fam = base.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').trim();
+    if (words.length && !fallback) fam += ' ' + words.join(' ');
     fontCache.set(name, fam);
     return fam;
   }
 
+  const WEIGHT_FAMILY = /\s(SemiBold|DemiBold|ExtraBold|UltraBold|Black|Heavy|Medium|Light|ExtraLight|UltraLight|Thin|U)$/;
   const hex = (rgb) => rgb.map((v) => Math.round(clamp(+v || 0, 0, 1) * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
 
   /** רוחב ממוצע של תו ב-Arial (ביחידות em) — לפי סוג התו */
@@ -326,7 +339,7 @@
     for (const g of glyphs) {
       if (!g.u || !g.size || g.size < 1) continue;
       const name = g.font.name;
-      if (COMMON.has(fontFamily(name))) continue;
+      if (COMMON.has(fontFamily(name)) || (CUR.embedded && CUR.embedded.has(fontFamily(name)))) continue; // גופן מוטמע — מוצג בדיוק כמו במקור
       const a = acc.get(name) || { real: 0, arial: 0 };
       a.real += g.advUser / g.size;
       a.arial += [...g.u].reduce((n, ch) => n + arialEm(ch), 0);
@@ -346,7 +359,8 @@
     const k = (CUR.fontScale && CUR.fontScale.get(g.font.name)) || 1;
     const color = g.Tr === 3 || g.Tr === 7 ? '000000' : hex(g.fill || [0, 0, 0]);
     return {
-      b: !!g.font.bold, i: /italic|oblique/i.test(g.font.name || ''),
+      // משקל שכבר בשם המשפחה ("… SemiBold", "Arial Black") — בלי הדגשה נוספת (Word היה מעבה אותו שוב)
+      b: !!g.font.bold && !WEIGHT_FAMILY.test(fam), i: /italic|oblique/i.test(g.font.name || ''),
       sz: Math.max(2, Math.round(g.size * k * 2)), // חצאי נקודות
       color: color === '000000' || /^(0[0-9A-F]){3}$/.test(color) && parseInt(color.slice(0, 2), 16) < 26 ? null : color,
       font: fam,
@@ -439,6 +453,41 @@
     });
     if (parts.map((p) => p.text).join('') !== text) return { text, dir, runs: single, style: major };
     return { text, dir, runs: parts.filter((p) => p.text), style: major };
+  }
+
+  /**
+   * פיצול שורה בפער רחב (הרבה יותר מרווח בין מילים) — שדות נפרדים של טופס שנראים כמו שורה אחת.
+   * רק לבנייה במיקום מדויק; בזרימה רגילה פער כזה הוא טאב.
+   */
+  function splitWide(L) {
+    if (!L.vmap || L.vmap.length !== L.visual.length || Math.abs(L.angle) > 0.02) return [L];
+    const glyphAt = (k) => (L.vmap[k] >= 0 ? L.glyphs[L.vmap[k]] : null);
+    const cuts = [];
+    let prev = null, prevK = -1;
+    for (let k = 0; k < L.visual.length; k++) {
+      const g = glyphAt(k);
+      if (!g || /\s/.test(g.u) || /\p{M}/u.test(g.u)) continue;
+      if (prev && g !== prev) {
+        const gap = g.x - (prev.x + prev.advUser);
+        if (gap > Math.max(prev.size, g.size) * 1.1) cuts.push([prevK, k]);
+      }
+      prev = g; prevK = k;
+    }
+    if (!cuts.length) return [L];
+    const out = [];
+    let start = 0;
+    const piece = (a, b) => {
+      let vis = L.visual.slice(a, b), vm = L.vmap.slice(a, b);
+      const lead = vis.length - vis.replace(/^\s+/, '').length;
+      vis = vis.slice(lead).replace(/\s+$/, ''); vm = vm.slice(lead, lead + vis.length);
+      const gs = vm.filter((i) => i >= 0).map((i) => L.glyphs[i]);
+      if (!vis || !gs.length) return;
+      const u0 = Math.min(...gs.map((g) => g.x)), u1 = Math.max(...gs.map((g) => g.x + g.advUser));
+      out.push({ ...L, visual: vis, vmap: vm, u0, u1 });
+    };
+    for (const [a, b] of cuts) { piece(start, a + 1); start = b; }
+    piece(start, L.visual.length);
+    return out.length ? out : [L];
   }
 
   /* ---------- ניתוח עמוד ---------- */
@@ -567,9 +616,19 @@
       return n + Math.max(0, Math.min(ff.u1, frame.u1) - Math.max(ff.u0, frame.u0)) * Math.max(0, Math.min(ff.v1, frame.v1) - Math.max(ff.v0, frame.v0));
     }, 0);
     const textOverImage = lines.some((L) => images.some((im) => L.u0 < im.u1 && L.u1 > im.u0 && L.v < im.top && L.v > im.bottom));
-    const designed = fillArea > pageArea * 0.05 || imageArea > pageArea * 0.45 || (textOverImage && imageArea > pageArea * 0.08);
-
+    // עמוד "מורכב": תוכן שיושב זה לצד זה (שדות של טופס, טורים) מחוץ לטבלאות — זרימה אחת של טקסט לא יכולה
+    // לשחזר אותו, ולכן גם הוא נבנה במיקום מדויק
     const blocks = layoutBlocks(lines, col, dir, bodySize);
+    // שורות שכבר זוהו כטבלה (לפי טורים) לא נחשבות "זו לצד זו"
+    const inTextTable = new Set();
+    for (const b of blocks) if (b.type === 'table') for (const row of b.rows) for (const cell of row.cells) for (const p of cell) for (const L of p.lines) inTextTable.add(L);
+    const rowsAll = toRows(lines.filter((L) => !inTextTable.has(L)));
+    const sideBySide = rowsAll.filter((r) => r.segs.length >= 2).length;
+    // טבלאות זו לצד זו, או טבלה שהמבנה שלה לא נקרא במלואו — גם הן במיקום מדויק
+    const tablesSide = tables.some((a, i) => tables.some((b, j) => j !== i && a.box[1] < b.box[3] - 4 && b.box[1] < a.box[3] - 4 && (a.box[2] <= b.box[0] + 2 || b.box[2] <= a.box[0] + 2)));
+    const complex = (rowsAll.length >= 4 && sideBySide >= 3 && sideBySide > rowsAll.length * 0.2) || tablesSide || tables.some((t) => t.misfit);
+    const designed = complex || fillArea > pageArea * 0.05 || imageArea > pageArea * 0.45 || (textOverImage && imageArea > pageArea * 0.08);
+
     // טבלאות ותמונות נכנסות לפני הבלוק הראשון שמתחיל מתחתיהן
     const insert = (x) => {
       const k = blocks.findIndex((b) => b.top < x.top - 1);
@@ -577,11 +636,13 @@
     };
     for (const tb of tableBlocks.sort((a, b) => b.top - a.top)) insert(tb);
     for (const im of images.sort((a, b) => b.top - a.top)) insert(im);
-    if (odd.length) {
-      const extra = buildParagraphs(odd.sort((a, b) => b.v - a.v || a.u0 - b.u0), { l: col.l, r: col.r }, dir, bodySize);
-      blocks.push(...extra);
-    }
-    return { ...base, kind: 'text', angle, frame, col, dir, bodySize, blocks, images: images.length, designed, tables: tables.length };
+    const oddParas = odd.length ? buildParagraphs(odd.sort((a, b) => b.v - a.v || a.u0 - b.u0), { l: col.l, r: col.r }, dir, bodySize) : [];
+    blocks.push(...oddParas);
+    // לבנייה במיקום מדויק: כל קטע טקסט לחוד (בלי לאחד קטעים שעל אותה שורה), פסקאות רק משורות שבאמת ממשיכות זו את זו
+    const sorted = flowRaw.filter((L) => Math.abs(L.angle - angle) < 0.02).flatMap(splitWide).map(toModel).filter(Boolean)
+      .sort((a, b) => b.v - a.v || a.u0 - b.u0);
+    const exact = buildParagraphs(sorted, { l: col.l, r: col.r }, dir, bodySize).concat(tableBlocks, oddParas);
+    return { ...base, kind: 'text', angle, frame, col, dir, bodySize, blocks, exact, images: images.length, designed, tables: tables.length };
   }
 
   /* ---------- שורות → טבלאות ופסקאות ---------- */
@@ -995,7 +1056,8 @@
     // "atLeast" או "auto" נותנים ל-Word להוסיף ריווח משלו, והמסמך מתארך (וגולש לעמוד הבא)
     const big = p.runs && p.runs.length ? Math.max(...p.runs.map((r) => (r.style && r.style.sz ? r.style.sz / 2 : p.size || 11))) : (p.size || 11);
     const lineH = p.lines && p.lines.length > 1 && p.pitch ? Math.max(p.pitch, big * 1.05) : big * 1.2;
-    if (p.lines) sp.push(`w:line="${tw(lineH)}"`, 'w:lineRule="exact"');
+    if (p.single) sp.push('w:line="240"', 'w:lineRule="auto"'); // שורה בתיבה: קו הבסיס בגובה ה-ascent של הגופן
+    else if (p.lines) sp.push(`w:line="${tw(lineH)}"`, 'w:lineRule="exact"');
     x += `<w:spacing ${sp.join(' ')}/>`;
     const startInd = p.frame ? 0 : rtl ? p.indR : p.indL;
     const endInd = p.frame ? 0 : rtl ? p.indL : p.indR;
@@ -1083,7 +1145,11 @@
     const rtl = b.dir === 'rtl';
     const total = widths.reduce((a, c) => a + c, 0);
     let x = '<w:tblPr>';
-    if (opt.float) x += `<w:tblpPr w:leftFromText="0" w:rightFromText="0" w:vertAnchor="page" w:horzAnchor="page" w:tblpX="${tw(opt.float.x)}" w:tblpY="${tw(opt.float.y)}"/><w:tblOverlap w:val="overlap"/>`;
+    if (opt.float) {
+      // מיקום אופקי ביישור (בכותרת) — נקרא אותו דבר בכל תוכנה גם במסמך מימין לשמאל
+      const h = opt.float.xSpec ? `w:horzAnchor="margin" w:tblpXSpec="${opt.float.xSpec}"` : `w:horzAnchor="page" w:tblpX="${tw(opt.float.x)}"`;
+      x += `<w:tblpPr w:leftFromText="0" w:rightFromText="0" w:vertAnchor="page" ${h} w:tblpY="${tw(opt.float.y)}"/><w:tblOverlap w:val="overlap"/>`;
+    }
     if (rtl) x += '<w:bidiVisual/>';
     x += `<w:tblW w:w="${total}" w:type="dxa"/>`;
     const indPt = rtl ? region.r - b.u1 : b.u0 - region.l;
@@ -1175,7 +1241,7 @@
 </w:styles>`;
 
   const SETTINGS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:defaultTabStop w:val="720"/><w:characterSpacingControl w:val="doNotCompress"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat><w:themeFontLang w:val="en-US" w:bidi="he-IL"/></w:settings>`;
+<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">%EMBED%<w:defaultTabStop w:val="720"/><w:characterSpacingControl w:val="doNotCompress"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat><w:themeFontLang w:val="en-US" w:bidi="he-IL"/></w:settings>`;
 
   const NS = 'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
   const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -1195,13 +1261,13 @@
   /**
    * parts: { body, headers: [{ name, xml, rels }], footers: [...], docRels: [...] }, media, lists
    */
-  function packageFiles(parts, media, lists, title) {
+  function packageFiles(parts, media, lists, title, fonts = []) {
     const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     const files = {};
     const exts = new Set(media.map((m) => m.ext));
     const over = (name, type) => `<Override PartName="/word/${name}" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.${type}+xml"/>`;
     files['[Content_Types].xml'] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${exts.has('png') ? '<Default Extension="png" ContentType="image/png"/>' : ''}${exts.has('jpeg') ? '<Default Extension="jpeg" ContentType="image/jpeg"/>' : ''}${over('document.xml', 'document.main')}${over('styles.xml', 'styles')}${over('settings.xml', 'settings')}${lists.size ? over('numbering.xml', 'numbering') : ''}${parts.headers.map((h) => over(h.name, 'header')).join('')}${parts.footers.map((f) => over(f.name, 'footer')).join('')}<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`;
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${exts.has('png') ? '<Default Extension="png" ContentType="image/png"/>' : ''}${exts.has('jpeg') ? '<Default Extension="jpeg" ContentType="image/jpeg"/>' : ''}${over('document.xml', 'document.main')}${over('styles.xml', 'styles')}${over('settings.xml', 'settings')}${lists.size ? over('numbering.xml', 'numbering') : ''}${fonts.length ? '<Default Extension="odttf" ContentType="application/vnd.openxmlformats-officedocument.obfuscatedFont"/>' + over('fontTable.xml', 'fontTable') : ''}${parts.headers.map((h) => over(h.name, 'header')).join('')}${parts.footers.map((f) => over(f.name, 'footer')).join('')}<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`;
     files['_rels/.rels'] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="${REL}/extended-properties" Target="docProps/app.xml"/></Relationships>`;
     files['docProps/core.xml'] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1210,6 +1276,7 @@
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>EitanPDF</Application></Properties>`;
     const docRels = [{ id: 'rIdStyles', type: 'styles', target: 'styles.xml' }, { id: 'rIdSettings', type: 'settings', target: 'settings.xml' }]
       .concat(lists.size ? [{ id: 'rIdNumbering', type: 'numbering', target: 'numbering.xml' }] : [])
+      .concat(fonts.length ? [{ id: 'rIdFontTable', type: 'fontTable', target: 'fontTable.xml' }] : [])
       .concat(parts.headers.map((h) => ({ id: h.id, type: 'header', target: h.name })))
       .concat(parts.footers.map((f) => ({ id: f.id, type: 'footer', target: f.name })))
       .concat(parts.docRels);
@@ -1221,13 +1288,33 @@
       if (hf.rels.length) files[`word/_rels/${hf.name}.rels`] = relsXml(hf.rels);
     }
     files['word/styles.xml'] = STYLES;
-    files['word/settings.xml'] = SETTINGS;
+    files['word/settings.xml'] = SETTINGS.replace('%EMBED%', fonts.length ? '<w:embedTrueTypeFonts/><w:saveSubsetFonts/>' : '');
+    // גופנים מוטמעים: fontTable + קבצי odttf (מוצפנים לפי התקן במפתח של כל גופן)
+    const fontZip = {};
+    if (fonts.length) {
+      const fam = new Map();
+      const rels = [];
+      fonts.forEach((f, k) => {
+        const key = FontEmbed.newKey();
+        const name = `font${k + 1}.odttf`;
+        rels.push({ id: `rIdF${k + 1}`, type: 'font', target: 'fonts/' + name });
+        fontZip['word/fonts/' + name] = FontEmbed.obfuscate(f.bytes, key);
+        const slot = f.bold && f.italic ? 'embedBoldItalic' : f.bold ? 'embedBold' : f.italic ? 'embedItalic' : 'embedRegular';
+        if (!fam.has(f.family)) fam.set(f.family, {});
+        fam.get(f.family)[slot] = `<w:${slot} r:id="rIdF${k + 1}" w:fontKey="${key}"/>`;
+      });
+      const order = ['embedRegular', 'embedBold', 'embedItalic', 'embedBoldItalic'];
+      files['word/fontTable.xml'] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="${REL}">${[...fam].map(([name, slots]) => `<w:font w:name="${esc(name)}"><w:charset w:val="B1"/><w:family w:val="auto"/><w:pitch w:val="variable"/>${order.map((o) => slots[o] || '').join('')}</w:font>`).join('')}</w:fonts>`;
+      files['word/_rels/fontTable.xml.rels'] = relsXml(rels);
+    }
     if (lists.size) files['word/numbering.xml'] = numberingXml(lists);
     files['word/document.xml'] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document ${NS}><w:body>${parts.body}</w:body></w:document>`;
     const zip = {};
     for (const [k, v] of Object.entries(files)) zip[k] = [fflate.strToU8(v), { level: 6 }];
     for (const m of media) zip['word/media/' + m.name] = [m.bytes, { level: 0 }];
+    for (const [k, v] of Object.entries(fontZip)) zip[k] = [v, { level: 6 }];
     return fflate.zipSync(zip, { mtime: new Date() });
   }
 
@@ -1331,7 +1418,15 @@
     const pages = doc.getPages();
     const want = opts.pages && opts.pages.length ? opts.pages.filter((i) => i >= 0 && i < pages.length) : pages.map((_, i) => i);
     const stats = { pages: want.length, textPages: 0, imagePages: 0, designedPages: 0, images: 0, tables: 0, unreadable: 0 };
-    CUR = { lists: new Map() };
+    CUR = { lists: new Map(), fontScale: null, embedded: new Set() };
+    // גופני ה-PDF (TrueType) מוטמעים בקובץ — Word יציג אותם בדיוק, גם במחשב שאין בו את הגופן
+    let fonts = [];
+    if (opts.embedFonts !== false && FontEmbed) {
+      try { fonts = FontEmbed.collect(doc, want, fontFamily); } catch (e) { fonts = []; }
+      CUR.embedded = new Set(fonts.map((f) => f.family));
+      CUR.ascent = new Map(fonts.filter((f) => f.ascent).map((f) => [f.family, f.ascent]));
+    }
+    stats.embeddedFonts = fonts.length;
     const media = [];
     const ctx = { drawId: 0 };
     const docRels = [];
@@ -1410,23 +1505,24 @@
       const region = { l: col.l, r: col.r };
       let xml = '';
       // עמוד מעוצב: כל פסקה — תיבת טקסט במקום המדויק (גם פסקאות בתוך טבלה: הקווים כבר בתמונת הרקע)
-      const paraBox = (b) => {
-        const w = (b.u1 - b.u0) * 1.15 + 8;
-        const toEnd = b.align === 'right' || (b.dir === 'rtl' && b.align !== 'left' && b.align !== 'center');
-        const x = b.align === 'center' ? (b.u0 + b.u1) / 2 - w / 2 : toEnd ? b.u1 - w : b.u0;
-        const runs = [];
-        b.lines.forEach((L, k) => {
-          if (k) runs.push({ br: true });
-          let lr = L.runs.map((r) => ({ ...r }));
-          if (k === 0 && b.list && lr[0]) { lr[0].text = lr[0].text.replace(SYMBOL_BULLET_RE, ''); lr = lr.filter((r) => r.text); }
-          runs.push(...lr);
-        });
-        const align = b.align === 'both' ? (b.dir === 'rtl' ? 'right' : 'left') : b.align;
-        const inner = { ...b, runs, align, before: 0, indL: 0, indR: 0, first: 0, heading: 0, frame: null };
-        if (b.list) { if (b.dir === 'rtl') inner.indR = -b.first; else inner.indL = -b.first; inner.first = b.first; }
-        const lineH = b.lines.length > 1 && b.pitch ? b.pitch : b.size * 1.2;
+      // שורה = תיבה. המיקום האנכי לפי קו הבסיס המקורי ולפי הגובה האמיתי של הגופן (כשהוא מוטמע),
+      // כך שאין הצטברות של סטייה משורה לשורה
+      const lineBox = (L, align, dir) => {
+        const runs = L.runs.map((r) => ({ ...r }));
+        const sizes = runs.map((r) => (r.style && r.style.sz ? r.style.sz / 2 : L.size));
+        const big = Math.max(...sizes, 1);
+        const asc = Math.max(...runs.map((r, k) => ((CUR.ascent && r.style && CUR.ascent.get(r.style.font)) || 0.9) * sizes[k]));
+        const w = (L.u1 - L.u0) * 1.25 + 12;
+        const toEnd = align === 'right' || (dir === 'rtl' && align !== 'left' && align !== 'center');
+        const x = align === 'center' ? (L.u0 + L.u1) / 2 - w / 2 : toEnd ? L.u1 - w : L.u0;
+        const inner = { dir, runs, align: align === 'both' ? (dir === 'rtl' ? 'right' : 'left') : align, before: 0, indL: 0, indR: 0, first: 0, heading: 0, frame: null, single: true };
         ctx.boxes.push(textBoxRun(ctx, paraXml(inner), clamp(x - frame.u0, 0, frame.u1 - frame.u0 - 10),
-          Math.max(0, frame.v1 - b.top - b.size * 0.1), Math.min(w, frame.u1 - frame.u0), lineH * b.lines.length));
+          Math.max(0, frame.v1 - L.v - asc), Math.min(w, frame.u1 - frame.u0), big * 1.3));
+      };
+      const paraBox = (b) => {
+        // יישור לפי הפסקה: שורה בפסקה מיושרת לשני הצדדים — לפי צד ההתחלה
+        const align = b.align === 'center' ? 'center' : b.align === 'both' ? (b.dir === 'rtl' ? 'right' : 'left') : b.align;
+        for (const L of b.lines) lineBox(L, align, L.dir || b.dir);
       };
       if (layout) {
         for (const b of blocks) {
@@ -1464,7 +1560,11 @@
           }
         } else if (b.type === 'table') {
           stats.tables++;
-          const float = layout ? { x: b.u0 - frame.u0, y: frame.v1 - b.top } : null;
+          let float = layout ? { x: b.u0 - frame.u0, y: frame.v1 - b.top } : null;
+          if (inHeader) {
+            const mid = (b.u0 + b.u1) / 2, third = (col.r - col.l) / 3;
+            float = { xSpec: mid > col.r - third ? 'right' : mid < col.l + third ? 'left' : 'center', y: frame.v1 - b.top };
+          }
           if (!layout && gap > 4 && prevType) xml += `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="${tw(Math.min(gap, 144))}" w:lineRule="exact"/></w:pPr></w:p>`;
           xml += b.ruled ? ruledTableXml(b, region, { layout, float }) : tableXml(b, region, { layout, float });
           // אחרי טבלה צריך פסקה לפני טבלה נוספת (אחרת Word מאחד אותן)
@@ -1505,9 +1605,8 @@
       parts.headers.push({ id: 'rIdHdr0', name: 'header2.xml', xml: '', rels: [] });
       parts.footers.push({ id: 'rIdFtr0', name: 'footer2.xml', xml: '', rels: [] });
       running.hTop = running.h.length ? Math.max(...running.h.map((b) => b.top)) : null;
-      // התחתית של הכותרת לפי הטקסט שבה בלבד (תמונות צפות לא דוחפות את הגוף)
-      const hText = running.h.filter((b) => b.type !== 'image');
-      running.hBottom = hText.length ? Math.min(...hText.map((b) => b.bottom)) : null;
+      // הגוף מתחיל מתחת לכל מה שבכותרת (גם תמונה צפה — לא כל תוכנה מזיזה את הטקסט סביבה)
+      running.hBottom = running.h.length ? Math.min(...running.h.map((b) => b.bottom)) : null;
       running.fTop = running.f.length ? Math.max(...running.f.map((b) => b.top)) : null;
       running.fBottom = running.f.length ? Math.min(...running.f.map((b) => b.bottom)) : null;
     }
@@ -1556,7 +1655,7 @@
         sec = { w: W, h: Hh, margins: { t: 14, b: 14, l: 14, r: 14, h: 0, f: 0 }, dir: 'ltr', refs };
         const bg = await render({ pageIndex, box: model.box, dpi: 150, photo: true, full: true, pdf: gfxPdf });
         ctx.boxes = [];
-        const tablesXml = await blocksXml(model.blocks, model, docRels, true);
+        const tablesXml = await blocksXml(model.exact || model.blocks, model, docRels, true);
         // פסקה אחת שמחזיקה את הרקע ואת כל תיבות הטקסט — כך כולן נשארות בעמוד הזה
         xml += `<w:p>${TINY_P}${bg ? anchorRun(ctx, addMedia(bg, docRels), W, Hh) : ''}${ctx.boxes.join('')}</w:p>`;
         if (bg) stats.images++;
@@ -1613,7 +1712,7 @@
     }
     if (!want.length) body = '<w:p/>' + sectPr({ w: 595, h: 842, margins: { t: 72, b: 72, l: 72, r: 72 }, dir: 'rtl' });
     parts.body = body;
-    const bytes = packageFiles(parts, media, CUR.lists, opts.title);
+    const bytes = packageFiles(parts, media, CUR.lists, opts.title, fonts);
     return { bytes, stats };
   }
 

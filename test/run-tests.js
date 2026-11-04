@@ -869,12 +869,36 @@ async function makeForm() {
     })();
   });
 
+  await ok('Word: הגופנים של ה-PDF מוטמעים בקובץ (TrueType תקין, עברית ממופה, מוצפן לפי התקן)', async () => {
+    const FE = require('../src/core/fontembed.js');
+    const { zip } = await toWord(fixture('הסכם שכירות.pdf'), 'word-fonts.docx');
+    const table = strFromU8(zip['word/fontTable.xml']);
+    const rels = strFromU8(zip['word/_rels/fontTable.xml.rels']);
+    assert.ok(strFromU8(zip['word/settings.xml']).includes('<w:embedTrueTypeFonts/>'));
+    assert.ok(strFromU8(zip['[Content_Types].xml']).includes('Extension="odttf"'));
+    const m = table.match(/<w:font w:name="([^"]+)">(?:(?!<\/w:font>).)*?<w:embedRegular r:id="([^"]+)" w:fontKey="(\{[^}]+\})"/);
+    assert.ok(m, table);
+    const target = rels.match(new RegExp(`Id="${m[2]}"[^>]*Target="([^"]+)"`))[1];
+    // ההצפנה הפיכה: XOR של 32 הבתים הראשונים במפתח
+    const raw = FE.obfuscate(zip['word/' + target], m[3]);
+    const font = FE.readFont(raw);
+    assert.ok(font && font.numGlyphs > 0, 'הגופן לא נקרא');
+    for (const t of ['cmap', 'name', 'OS/2', 'post', 'glyf', 'loca', 'head', 'hhea', 'hmtx', 'maxp']) assert.ok(font.tables[t], 'חסרה טבלה ' + t);
+    const cmap = font.cmap['3,1'];
+    const alef = cmap.get(0x5D0);
+    assert.ok(alef && font.glyph(alef), 'א לא ממופה לגליף');
+    // הטקסט בקובץ משתמש באותו שם משפחה
+    assert.ok(strFromU8(zip['word/document.xml']).includes(`w:cs="${m[1]}"`));
+  });
+
   await ok('Word: פיצול לפי כתב ושמות גופנים', () => {
     assert.deepStrictEqual(Docx.splitScript('המחיר 1,250.50 ש"ח', 'rtl'), [{ text: 'המחיר ', rtl: true }, { text: '1,250.50', rtl: false }, { text: ' ש"ח', rtl: true }]);
     assert.deepStrictEqual(Docx.splitScript('Hello שלום', 'ltr'), [{ text: 'Hello', rtl: false }, { text: ' שלום', rtl: true }]);
     assert.strictEqual(Docx.fontFamily('ABCDEF+Arial-BoldMT'), 'Arial');
     assert.strictEqual(Docx.fontFamily('TimesNewRomanPS-ItalicMT'), 'Times New Roman');
-    assert.strictEqual(Docx.fontFamily('IBMPlexSansHebrew-SemiBold'), 'IBM Plex Sans Hebrew');
+    assert.strictEqual(Docx.fontFamily('IBMPlexSansHebrew-SemiBold'), 'IBM Plex Sans Hebrew SemiBold'); // משקל שאינו רגיל/מודגש — חלק משם המשפחה, כמו ב-Windows
+    assert.strictEqual(Docx.fontFamily('Arial-BoldMT'), 'Arial');
+    assert.strictEqual(Docx.fontFamily('Arial-BlackMT'), 'Arial Black');
     assert.strictEqual(Docx.fontFamily('F12'), 'Arial');
   });
 
