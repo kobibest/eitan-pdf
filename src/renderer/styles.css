@@ -210,6 +210,10 @@ svg { flex: none; }
 .workspace { display: grid; grid-template-columns: 84px 1fr var(--panel-w); min-height: 0; }
 body.no-panel .workspace { grid-template-columns: 84px 1fr 0; }
 body.no-panel .panel { display: none; }
+/* ראש הלוח: שם הלשונית וסגירה */
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -6px -6px 2px 0; }
+.panel-head h1 { margin: 0; font-size: var(--fs-l, 17px); font-weight: 600; color: var(--ink); }
+.panel-head .icon-btn { width: 32px; height: 32px; }
 .panel {
   background: var(--panel);
   border-inline-start: 1px solid var(--line);

@@ -90,7 +90,8 @@ const INK_COLORS = [
 /** הכלים בסרגל הימני. doc=true: דורש מסמך פתוח. panel=false: בלי לוח אפשרויות */
 const TOOLS = [
   // לפי סדר העבודה: המסמך כולו (צפייה, עמודים) → התוכן (עריכה, הוספה, טפסים) → יציאה (דחיסה והמרה, ואבטחה אחרונה)
-  { id: 'view', label: 'צפייה', icon: 'eye', doc: true, panel: false },
+  // צפייה היא מצב הבסיס: אין לה לשונית. לחיצה על לשונית פותחת את הלוח שלה, ולחיצה נוספת (או X) סוגרת וחוזרת לצפייה
+  { id: 'view', label: 'צפייה', icon: 'eye', doc: true, panel: false, hidden: true },
   { id: 'pages', label: 'עמודים', icon: 'grid', doc: true },
   // "מילוי ועריכה": שתי לשוניות בתוך הכלי — טקסט וחתימה (הוספה לעמוד) ועריכת הטקסט הקיים
   { id: 'sign', label: 'מילוי ועריכה', icon: 'sign', doc: true, group: ['sign', 'edit'] },
@@ -1448,6 +1449,14 @@ function editPanel(panel) {
     </div>`));
 }
 
+/** ראש הלוח: שם הלשונית וכפתור סגירה (חזרה לצפייה) */
+function panelHead(tool) {
+  const owner = TOOLS.find((t) => t.group && t.group.includes(tool.id)) || tool;
+  const head = h(`<div class="panel-head"><h1>${esc(owner.label)}</h1><button class="icon-btn" title="סגירה" aria-label="סגירת ${esc(owner.label)}">${icon('x')}</button></div>`);
+  head.querySelector('button').onclick = () => setView('view');
+  $('#panel').prepend(head);
+}
+
 /** הלשוניות שבתוך "מילוי ועריכה" */
 function fillTabs() {
   const seg = h('<div class="segmented" role="tablist" aria-label="מילוי ועריכה"></div>');
@@ -2378,6 +2387,7 @@ function render() {
       forms: renderForms, security: renderSecurity, windows: renderWindows, export: renderExport,
     })[S.tool]();
   }
+  if (showPanel) panelHead(tool);
   desk.scrollTop = keepScroll;
   updateChrome();
   if (F.open) {
@@ -2436,8 +2446,9 @@ function renderRail() {
     const disabled = t.doc && (!d || !d.pages.length);
     const on = S.tool === t.id || (t.group && t.group.includes(S.tool));
     const b = h(`<button class="rail-btn" aria-pressed="${on}" ${disabled ? 'disabled' : ''}>${icon(t.icon)}<span>${esc(t.label)}</span></button>`);
-    // לחיצה על כלי שכבר פעיל (גם בלשונית הפנימית השנייה) — נשארים איפה שהיינו
-    b.onclick = () => { if (!on) setView(t.id); };
+    // לחיצה על הלשונית הפתוחה (גם כשבלשונית הפנימית השנייה) — סוגרת אותה וחוזרת לצפייה
+    b.onclick = () => setView(on ? 'view' : t.id);
+    b.title = on ? `סגירת ${t.label}` : t.label;
     (t.bottom ? bottom : top).append(b);
   }
   rail.append(top, bottom);
