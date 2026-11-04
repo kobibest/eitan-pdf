@@ -578,6 +578,32 @@ async function makeForm() {
     assert.strictEqual(light.recompressed, 0);
   });
 
+  await ok('דחיסה: EXIF מוסר (בלי סיבוב), מסכות ותמונות עם Decode לא נוגעים, חיסכון זניח = "כבר דחוס"', async () => {
+    const C = require('../src/core/compress.js');
+    const jpg = new Uint8Array(fs.readFileSync(path.join(__dirname, 'fixtures/redacted-page.jpg')));
+    const exif = new Uint8Array([0xff, 0xe1, 0x00, 0x08, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00]);
+    const withExif = new Uint8Array([...jpg.subarray(0, 2), ...exif, ...jpg.subarray(2)]);
+    const stripped = C._internal.stripExif(withExif);
+    assert.ok(Buffer.from(stripped).equals(Buffer.from(jpg)), 'EXIF לא הוסר נכון');
+    assert.ok(Buffer.from(C._internal.stripExif(jpg)).equals(Buffer.from(jpg)));
+
+    const d = await PDFDocument.create();
+    const ctx = d.context;
+    const W = 400, Hh = 400;
+    const noise = new Uint8Array(W * Hh); for (let i = 0; i < noise.length; i++) noise[i] = (Math.imul(i, 2654435761) >>> 24);
+    const stencil = ctx.register(ctx.flateStream(new Uint8Array(W / 8 * Hh).fill(0xaa), { Type: 'XObject', Subtype: 'Image', Width: W, Height: Hh, ImageMask: true, BitsPerComponent: 1 }));
+    const inv = ctx.register(ctx.flateStream(noise, { Type: 'XObject', Subtype: 'Image', Width: W, Height: Hh, ColorSpace: 'DeviceGray', BitsPerComponent: 8, Decode: [1, 0] }));
+    const idx = ctx.register(ctx.flateStream(noise, { Type: 'XObject', Subtype: 'Image', Width: W, Height: Hh, ColorSpace: ['Indexed', 'DeviceRGB', 255, P.PDFHexString.of('00'.repeat(768))], BitsPerComponent: 8 }));
+    const pg = d.addPage([595, 842]);
+    pg.node.setXObject(P.PDFName.of('S'), stencil); pg.node.setXObject(P.PDFName.of('D'), inv); pg.node.setXObject(P.PDFName.of('X'), idx);
+    const src = await d.save();
+    const r = await C.compress(src, { level: 'strong', recode: async () => { throw new Error('לא אמור להיקרא'); } });
+    assert.strictEqual(r.recompressed, 0);
+    assert.strictEqual(r.skipped, 0);
+    // הקובץ כבר קטן ונקי — אין עותק חדש
+    assert.ok(r.unchanged && r.bytes === src);
+  });
+
   await ok('המנוע נטען במצב דפדפן (כמו ב-WebView של אנדרואיד) וכותב עברית', async () => {
     const out = await require('./browser-globals.js').run(fonts);
     fs.writeFileSync(path.join(OUT, 'browser-globals.pdf'), out);

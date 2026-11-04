@@ -33,6 +33,8 @@
   const N = (s) => PDFName.of(s);
   const MIN_PIXELS = 96 * 96; // תמונות קטנות (סמלים, לוגו) לא שווה לקודד מחדש
   const MIN_GAIN = 0.9; // מחליפים תמונה רק אם החדשה קטנה לפחות ב-10%
+  const MAX_RAW_PIXELS = 36e6; // תמונה לא-JPEG גדולה מזה נשארת כמו שהיא
+  const MIN_SAVING = 0.98; // הקובץ כולו: לפחות 2% חיסכון, אחרת "כבר דחוס"
 
   /* ---------- עזרים ---------- */
 
@@ -140,9 +142,36 @@
       'image/jpeg', quality));
   }
 
-  function loadJpeg(bytes) {
-    const blob = new Blob([bytes], { type: 'image/jpeg' });
-    if (typeof createImageBitmap === 'function') return createImageBitmap(blob);
+  /**
+   * הסרת קטעי EXIF (APP1) מ-JPEG. PDF מתעלם מכיוון הצילום שב-EXIF, אבל הדפדפן מסובב לפיו —
+   * בלי ההסרה תמונה מטלפון הייתה יוצאת מסובבת אחרי הדחיסה.
+   */
+  function stripExif(b) {
+    if (b[0] !== 0xff || b[1] !== 0xd8) return b;
+    const parts = [b.subarray(0, 2)];
+    let i = 2;
+    while (i + 4 <= b.length && b[i] === 0xff) {
+      const m = b[i + 1];
+      if (m === 0xda || m === 0xd9) break; // מכאן הנתונים עצמם
+      const len = (b[i + 2] << 8) | b[i + 3];
+      if (m !== 0xe1) parts.push(b.subarray(i, i + 2 + len));
+      i += 2 + len;
+    }
+    if (parts.length === 1 && i === 2) return b;
+    parts.push(b.subarray(i));
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let o = 0;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  }
+
+  async function loadJpeg(bytes, tw, th) {
+    const blob = new Blob([stripExif(bytes)], { type: 'image/jpeg' });
+    if (typeof createImageBitmap === 'function') {
+      // פענוח ישירות בגודל היעד — חוסך זיכרון בסריקות ענקיות (חשוב בטלפון)
+      try { return await createImageBitmap(blob, { resizeWidth: tw, resizeHeight: th, resizeQuality: 'high' }); } catch (e) { /* דפדפן ישן */ }
+      return createImageBitmap(blob);
+    }
     return new Promise((res, rej) => {
       const url = URL.createObjectURL(blob);
       const img = new Image();
@@ -158,7 +187,7 @@
   async function canvasRecode(src) {
     let source;
     if (src.jpeg) {
-      source = await loadJpeg(src.jpeg);
+      source = await loadJpeg(src.jpeg, src.targetWidth, src.targetHeight);
     } else {
       const c0 = document.createElement('canvas');
       c0.width = src.width;
@@ -233,6 +262,7 @@
       if (![1, 3].includes(jpegComponents(img.contents))) return null;
       src = { jpeg: img.contents };
     } else if (f.length === 1 && f[0] === 'FlateDecode') {
+      if (w * h > MAX_RAW_PIXELS) return null; // פענוח מלא בזיכרון — מסוכן בטלפון
       const pixels = rawPixels(img, w, h, comps);
       if (!pixels) return null;
       src = { pixels, comps };
@@ -357,7 +387,7 @@
    *   recode(src) → Uint8Array JPEG — ברירת מחדל: canvas בדפדפן
    *   onProgress(done, total) — התקדמות התמונות
    * מחזיר { bytes, before, after, images, recompressed, unchanged }.
-   * אם התוצאה לא קטנה מהמקור — מוחזר המקור (unchanged: true).
+   * אם התוצאה לא קטנה מהמקור בלפחות 2% — מוחזר המקור (unchanged: true).
    */
   async function compress(bytes, opts = {}) {
     const level = LEVELS[opts.level] ? opts.level : 'medium';
@@ -376,7 +406,8 @@
 
     const out = await doc.save({ useObjectStreams: true, updateFieldAppearances: false });
     const before = bytes.length;
-    if (out.length >= before) return { ...stats, bytes, before, after: before, unchanged: true, level };
+    // חיסכון זניח (פחות מ-2%) — לא שווה עותק חדש; מחזירים את המקור
+    if (out.length > before * MIN_SAVING) return { ...stats, bytes, before, after: before, unchanged: true, level };
     return { ...stats, bytes: out, before, after: out.length, unchanged: false, level };
   }
 
@@ -387,5 +418,5 @@
     return `${(n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
   }
 
-  return { compress, formatSize, LEVELS, _internal: { unpredictPng, jpegComponents } };
+  return { compress, formatSize, LEVELS, _internal: { unpredictPng, jpegComponents, stripExif } };
 });

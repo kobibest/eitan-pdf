@@ -233,7 +233,7 @@ async function saveMenu() {
   if (choice === 'over') return saveOver();
   if (choice === 'as') return saveAsNew();
   if (choice === 'share') { await shareDoc(); return false; }
-  if (choice === 'compress') { await compressDoc(); return false; }
+  if (choice === 'compress') { await compressDoc({ confirmed: D.dirty }); return false; }
   return false;
 }
 
@@ -767,7 +767,7 @@ function pageNumbersSheet() {
 }
 
 /** דחיסה — אותו מנוע כמו בדסקטופ (src/core/compress.js). יוצר עותק, המסמך עצמו לא משתנה */
-async function compressDoc() {
+async function compressDoc({ confirmed = false } = {}) {
   const D = S.doc;
   if (!D || !D.pages.length) return;
   const fmt = window.Compress.formatSize;
@@ -777,7 +777,7 @@ async function compressDoc() {
     { id: 'light', label: 'קלה, בלי איבוד איכות', sub: 'מנקה כפילויות ושאריות בלבד', icon: TOOL_ICON.zip },
   ], { title: 'דחיסת הקובץ', note: 'הטקסט נשאר טקסט, רק התמונות והסריקות מוקטנות. נוצר עותק חדש, המקור לא משתנה.' });
   if (!level) return;
-  if (!(await confirmBreakSignatures())) return; // הקובץ נכתב מחדש — גם בלי שינויים
+  if (!confirmed && !(await confirmBreakSignatures())) return; // הקובץ נכתב מחדש — גם בלי שינויים
   busy(true, 'דוחס…');
   let r;
   try {
