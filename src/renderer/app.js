@@ -89,16 +89,17 @@ const INK_COLORS = [
 
 /** הכלים בסרגל הימני. doc=true: דורש מסמך פתוח. panel=false: בלי לוח אפשרויות */
 const TOOLS = [
+  // לפי סדר העבודה: המסמך כולו (צפייה, עמודים) → התוכן (עריכה, הוספה, טפסים) → יציאה (דחיסה והמרה, ואבטחה אחרונה)
   { id: 'view', label: 'צפייה', icon: 'eye', doc: true, panel: false },
   { id: 'pages', label: 'עמודים', icon: 'grid', doc: true },
-  { id: 'sign', label: 'טקסט וחתימה', icon: 'sign', doc: true },
   { id: 'edit', label: 'עריכת טקסט', icon: 'textEdit', doc: true },
+  { id: 'sign', label: 'טקסט וחתימה', icon: 'sign', doc: true },
   { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
-  { id: 'security', label: 'אבטחה', icon: 'lock', doc: true },
   { id: 'export', label: 'דחיסה והמרה', icon: 'export', doc: true },
+  { id: 'security', label: 'אבטחה', icon: 'lock', doc: true },
   { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true, winOnly: true },
 ].filter((t) => !t.winOnly || !window.api || !window.api.platform || window.api.platform === 'win32');
-const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'edit', 'forms', 'security']);
+const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'edit', 'forms', 'security', 'export']);
 
 const docs = new Map(); // id → מסמך
 let activeId = null;
@@ -1763,11 +1764,8 @@ function renderCompress() {
   out.querySelector('button').onclick = () => doCompress();
   panel.append(out);
 
-  desk.append(deskBar());
-  const grid = h('<div class="grid"></div>');
-  grid.style.setProperty('--thumb-w', S.thumbW + 'px');
-  S.pages.forEach((p, i) => grid.append(sheetEl(p, i, { static: true })));
-  desk.append(grid);
+  // המסמך מוצג כרגיל (כמו בצפייה), לא כתמונות ממוזערות
+  pageColumn();
 }
 
 async function doCompress() {
@@ -1904,16 +1902,10 @@ function renderConvert() {
   out.querySelector('button').onclick = () => doConvert(pages);
   panel.append(out);
 
-  desk.append(deskBar());
-  const grid = h('<div class="grid"></div>');
-  grid.style.setProperty('--thumb-w', S.thumbW + 'px');
+  // המסמך מוצג כרגיל (כמו בצפייה). עמודים שלא ייכללו בהמרה — מעומעמים
+  pageColumn();
   const chosen = new Set(pages || []);
-  S.pages.forEach((p, i) => {
-    const el = sheetEl(p, i, { static: true });
-    if (pages && !chosen.has(i)) el.classList.add('dim');
-    grid.append(el);
-  });
-  desk.append(grid);
+  if (pages) desk.querySelectorAll('.page-frame').forEach((f) => f.classList.toggle('dim', !chosen.has(+f.dataset.idx)));
 }
 
 /** עדכון הטקסט בחלון "עובד…" (להתקדמות בהמרה ארוכה) */
