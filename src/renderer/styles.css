@@ -970,3 +970,8 @@ body.no-panel .find-bar { left: 20px; }
 .font-menu button[aria-selected="true"] { background: var(--ink-blue-wash); color: var(--ink-blue); }
 .font-menu button small { font-family: inherit; font-size: 11px; color: var(--ink-2); white-space: nowrap; }
 .font-menu .fn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* בחירת גופן בסרגל של תיבת טקסט */
+.item-bar .font-pick.in-bar { width: 150px; }
+.item-bar .font-pick.in-bar .font-btn { height: 30px; font-size: 14px; border-color: transparent; background: var(--line-soft); }
+.item-bar .font-pick.in-bar .font-menu { inset-inline-end: auto; width: 280px; }
+.font-menu .font-list { overflow-x: hidden; }

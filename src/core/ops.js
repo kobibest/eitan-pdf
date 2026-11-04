@@ -215,9 +215,15 @@
    * stamp: { type: 'text'|'image'|'rect'|'mark', x, y, w, h, text, size, color, align, image(dataUrl|bytes), opacity, shape('check'|'x'),
    *          bg (צבע רקע לתיבת טקסט), bgOpacity }
    */
-  async function drawStamps(doc, page, stamps, fonts) {
+  async function drawStamps(doc, page, stamps, fonts, o) {
     const images = [];
     for (const s of stamps) if (s.type === 'image') images.push(await embedImage(doc, s.image));
+    // תיבת טקסט בגופן שנבחר (ברירת מחדל: Alef — הגופן הבסיסי של המסמך)
+    const textFonts = new Map();
+    for (const s of stamps) {
+      if (s.type !== 'text' || !s.text) continue;
+      textFonts.set(s, s.font && s.font !== 'alef' && o ? await fontResolver(doc, o)(s, 'alef') : s.bold ? fonts.bold : fonts.regular);
+    }
     let imgIdx = 0;
     withViewFrame(page, (vw, vh) => {
       for (const s of stamps) {
@@ -227,7 +233,7 @@
         } else if (s.type === 'text' && s.text) {
           if (s.bg) {
             // רקע התיבה: בגובה השורות בפועל, בולט 2 יחידות מכל צד (כמו בעורך)
-            const font = s.bold ? fonts.bold : fonts.regular;
+            const font = textFonts.get(s);
             const m = H.measureBlock(s.text, font, s.size || 14, s.w);
             const pad = 2;
             page.drawRectangle({
@@ -237,7 +243,7 @@
           }
           H.drawText(page, s.text, {
             x: s.x, y: vh - s.y, width: s.w, size: s.size || 14,
-            font: s.bold ? fonts.bold : fonts.regular,
+            font: textFonts.get(s),
             color: hexToRgb(s.color), align: s.align, opacity: s.opacity,
           });
         } else if (s.type === 'rect') {
@@ -321,6 +327,37 @@
     return { regular, bold };
   }
 
+  /**
+   * גופן לפי מזהה: 'plex' | 'alef' | 'sys:<משפחה>' (גופן מהמחשב — הקבצים ב-o.editFonts[מזהה]).
+   * מוטמע פעם אחת לכל מסמך. גופן מהמחשב שחסרות בו אותיות של הטקסט (למשל בלי עברית) —
+   * הטקסט נכתב בגופן החלופי (fallback), עם אזהרה.
+   */
+  const RESOLVERS = new WeakMap();
+  function fontResolver(doc, o) {
+    if (RESOLVERS.has(doc)) return RESOLVERS.get(doc);
+    const EF = o.editFonts || {};
+    const cache = new Map();
+    const embed = async (id, bold) => {
+      const fam = EF[id] || (id === 'alef' ? EF.alef || o.fonts : EF.plex) || o.fonts;
+      const key = id + (bold ? '|b' : '');
+      if (!cache.has(key)) cache.set(key, H.embedFont(doc, bold && fam.bold ? fam.bold : fam.regular, fontkit));
+      return cache.get(key);
+    };
+    const resolve = async (e, fallback) => {
+      const id = EF[e.font] || e.font === 'alef' || e.font === 'plex' ? e.font : fallback;
+      const font = await embed(id, e.bold);
+      if (id === 'plex' || id === 'alef') return font;
+      const set = new Set(font.getCharacterSet ? font.getCharacterSet() : []);
+      const missing = set.size && [...String(e.text)].some((ch) => /\S/.test(ch) && !set.has(ch.codePointAt(0)));
+      if (!missing) return font;
+      const fbName = fallback === 'alef' ? 'Alef' : 'IBM Plex';
+      if (o.onWarning) o.onWarning(`בגופן "${String(e.font).slice(4)}" אין חלק מהאותיות של הטקסט "${e.text}" — הוא נכתב ב-${fbName}`);
+      return embed(fallback, e.bold);
+    };
+    RESOLVERS.set(doc, resolve);
+    return resolve;
+  }
+
   /* ---------- עריכת טקסט קיים ---------- */
 
   /**
@@ -347,26 +384,7 @@
     }
     if (toRemove.length) TE.removeGlyphs(doc, page, analysis, toRemove);
 
-    const cache = new Map();
-    const EF = o.editFonts || {};
-    const embed = async (id, bold) => {
-      const fam = EF[id] || (id === 'alef' ? EF.alef : EF.plex) || o.fonts;
-      const key = id + (bold ? '|b' : '');
-      if (!cache.has(key)) cache.set(key, await H.embedFont(doc, bold && fam.bold ? fam.bold : fam.regular, fontkit));
-      return cache.get(key);
-    };
-    // e.font: 'plex' | 'alef' | 'sys:<משפחה>' (גופן מהמחשב, הקבצים ב-o.editFonts).
-    // גופן שחסרות בו אותיות של השורה (למשל בלי עברית) — השורה נכתבת ב-IBM Plex
-    const fontFor = async (e) => {
-      const id = (EF[e.font] || e.font === 'alef') ? e.font : 'plex';
-      const font = await embed(id, e.bold);
-      if (id === 'plex' || id === 'alef') return font;
-      const set = new Set(font.getCharacterSet ? font.getCharacterSet() : []);
-      const missing = set.size && [...String(e.text)].some((ch) => /\S/.test(ch) && !set.has(ch.codePointAt(0)));
-      if (!missing) return font;
-      if (o.onWarning) o.onWarning(`בגופן "${String(e.font).slice(4)}" אין חלק מהאותיות של השורה "${e.text}" — היא נכתבה ב-IBM Plex`);
-      return embed('plex', e.bold);
-    };
+    const fontFor = (e) => fontResolver(doc, o)(e, 'plex');
     for (const e of changed) {
       const c = Math.cos(e.angle), s = Math.sin(e.angle);
       const at = (u, v) => [u * c - v * s, u * s + v * c];
@@ -622,7 +640,7 @@
         const edits = list.filter((s) => s.type === 'edit');
         if (edits.length) await applyTextEdits(doc, pg, edits, o);
         const rest = list.filter((s) => s.type !== 'edit');
-        if (rest.length) await drawStamps(doc, pg, rest, fonts);
+        if (rest.length) await drawStamps(doc, pg, rest, fonts, o);
       }
     }
     if (o.watermark && o.watermark.text) applyWatermark(doc, fonts, o.watermark);

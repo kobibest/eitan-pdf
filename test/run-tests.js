@@ -251,6 +251,27 @@ async function makeForm() {
     assert.ok(after.some((l) => l.text === 'דמי השכירות: ½ מהסכום'), after.map((l) => l.text).join('\n'));
   });
 
+  await ok('תיבת טקסט בגופן מהמחשב; בלי גופן — Alef', async () => {
+    const d = await PDFDocument.create();
+    d.addPage([595, 842]);
+    const src = await d.save();
+    const names = async (out) => {
+      const doc = await PDFDocument.load(out);
+      const n = [];
+      doc.context.enumerateIndirectObjects().forEach(([, o]) => { const b = o.get && o.get(require('pdf-lib').PDFName.of('BaseFont')); if (b) n.push(String(b)); });
+      return n.join(' ');
+    };
+    const box = (extra) => ({ 'a:0': [{ type: 'text', x: 40, y: 60, w: 300, size: 16, color: '#000000', text: 'שלום עולם', align: 'right', ...extra }] });
+    const sysFonts = { ...editFonts, 'sys:My Font': plex };
+    const out = await Ops.buildDocument({ a: src }, [{ src: 'a', index: 0 }], box({ font: 'sys:My Font' }), {}, { fonts, editFonts: sysFonts });
+    assert.ok(/Plex/.test(await names(out)), await names(out)); // Alef מוטמע תמיד (גופן הבסיס)
+    const out2 = await Ops.buildDocument({ a: src }, [{ src: 'a', index: 0 }], box({}), {}, { fonts, editFonts: sysFonts });
+    assert.ok(!/Plex/.test(await names(out2)), await names(out2));
+    // גופן שלא נטען (לא נמצא במחשב) → Alef
+    const out3 = await Ops.buildDocument({ a: src }, [{ src: 'a', index: 0 }], box({ font: 'sys:Missing' }), {}, { fonts, editFonts });
+    assert.ok(!/Plex/.test(await names(out3)), await names(out3));
+  });
+
   await ok('גופני המחשב: זיהוי משפחה, משקל ועברית מתוך קובץ הגופן', () => {
     const SF = require('../src/main/sysfonts.js');
     const fk = require('@pdf-lib/fontkit');

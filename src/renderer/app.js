@@ -97,6 +97,7 @@ const BG_COLORS = [
   { hex: '#E0E0E0', name: 'אפור' },
 ];
 let lastTextBg = { bg: null, bgOpacity: 1 }; // הרקע האחרון שנבחר — גם לתיבות חדשות
+let lastTextFont = 'alef'; // הגופן האחרון שנבחר לתיבת טקסט
 
 /** צבע הרקע של תיבת טקסט ב-CSS (או null) */
 function bgCss(it) {
@@ -714,7 +715,7 @@ function placeItem(ctx, x, y) {
   const id = 'i' + seq++;
   if (S.placing === 'text') {
     const size = 14;
-    item = { id, type: 'text', text: '', size, color: INK_COLORS[0].hex, w: 220, align: 'right', bold: false, ...lastTextBg };
+    item = { id, type: 'text', text: '', size, color: INK_COLORS[0].hex, w: 220, align: 'right', bold: false, font: lastTextFont, ...lastTextBg };
     item.x = Math.max(0, Math.min(ctx.vw - item.w, x - item.w + 10));
     item.y = Math.max(0, y - size * 0.75);
   } else if (S.placing === 'signature' || S.placing === 'image') {
@@ -803,6 +804,7 @@ function drawItems(ctx) {
 /** עיצוב תיבת טקסט: גופן, צבע, יישור, ורקע שנמתח מעט מעבר לטקסט (בלי להזיז אותו) — בדיוק כמו בקובץ השמור */
 function styleText(el, ta, it, scale) {
   ta.style.fontSize = it.size * scale + 'px';
+  ta.style.fontFamily = fontCss(it.font || 'alef');
   ta.style.color = it.color;
   ta.style.fontWeight = it.bold ? '700' : '400';
   ta.style.textAlign = it.align || 'right';
@@ -929,9 +931,18 @@ function markActive() {
 function itemBar(ctx, it) {
   const bar = h('<div class="item-bar" role="toolbar" aria-label="עיצוב"></div>');
   const keepFocus = (e) => e.preventDefault();
-  bar.addEventListener('pointerdown', (e) => { e.stopPropagation(); keepFocus(e); });
+  // שדה (חיפוש גופן, מחוון שקיפות) מקבל פוקוס כרגיל; כל השאר לא לוקח את הפוקוס מהתיבה
+  bar.addEventListener('pointerdown', (e) => { e.stopPropagation(); if (!e.target.closest('input')) keepFocus(e); });
   const update = (fn) => commit(fn, { render: false }) || refreshItems();
   if (it.type === 'text') {
+    const fp = fontPicker(it.font || 'alef', true, (font) => {
+      lastTextFont = font;
+      update(() => { it.font = font; });
+      // חוזרים להקלדה בתיבה
+      requestAnimationFrame(() => document.querySelector(`#desk .item[data-id="${CSS.escape(it.id)}"] textarea`)?.focus({ preventScroll: true }));
+    });
+    fp.classList.add('in-bar');
+    bar.append(fp, h('<span class="sep"></span>'));
     const smaller = h(`<button class="icon-btn" title="הקטנת גופן" aria-label="הקטנת גופן">${icon('minus')}</button>`);
     const size = h(`<span class="size" aria-label="גודל גופן">${it.size}</span>`);
     const bigger = h(`<button class="icon-btn" title="הגדלת גופן" aria-label="הגדלת גופן">${icon('plus')}</button>`);
@@ -2175,13 +2186,13 @@ async function buildBytes(pages, opts = {}) {
   const editFonts = { plex: S.plexFonts || S.fonts, alef: S.fonts };
   for (const list of Object.values(stamps)) {
     for (const it of list) {
-      if (it.type !== 'edit' || !isSysFont(it.font) || !window.api.readFont) continue;
+      if ((it.type !== 'edit' && it.type !== 'text') || !isSysFont(it.font) || !window.api.readFont) continue;
       const fam = it.font.slice(4);
       try {
         const f = editFonts[it.font] || (editFonts[it.font] = { regular: (await window.api.readFont(fam, false)).bytes });
         if (it.bold && !f.bold) { const r = await window.api.readFont(fam, true); f.bold = r.bold ? r.bytes : f.regular; }
       } catch (e) {
-        warnings.push(`הגופן "${fam}" לא נמצא במחשב — השורות שלו נכתבו ב-IBM Plex`);
+        if (!warnings.some((w) => w.includes(`"${fam}"`))) warnings.push(`הגופן "${fam}" לא נמצא במחשב — הטקסט שלו נכתב בגופן של התוכנה`);
       }
     }
   }
