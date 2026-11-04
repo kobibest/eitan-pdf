@@ -232,3 +232,27 @@ export async function pickAnyFile(accept = '.pfx,.p12') {
   input.remove();
   return file ? { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) } : null;
 }
+
+/* ---------- גופני הטלפון ---------- */
+
+/** [{ family, hebrew, bold }] — בדפדפן (בדיקות): רשימה ריקה */
+export async function listFonts() {
+  if (!isNative) return [];
+  const { fonts } = await EitanFiles.listFonts();
+  return fonts || [];
+}
+
+/** { bytes, bold } של גופן מהטלפון */
+export async function readFont(family, bold) {
+  const r = await EitanFiles.readFont({ family, bold: !!bold });
+  const bin = atob(r.data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return { bytes, bold: !!r.bold };
+}
+
+/** פתיחת קישור בדפדפן של הטלפון */
+export async function openUrl(url) {
+  if (isNative) await EitanFiles.openUrl({ url });
+  else window.open(url, '_blank', 'noopener');
+}

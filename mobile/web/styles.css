@@ -533,3 +533,31 @@ svg { flex: none; }
 .page .find-layer { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 .find-layer .find-hit { position: absolute; border-radius: 2px; background: rgba(245, 178, 39, .38); mix-blend-mode: multiply; }
 .find-layer .find-hit.cur { background: rgba(245, 140, 20, .62); box-shadow: 0 0 0 2px #D98A0B; }
+
+/* תיבת טקסט: גופן, רקע ושקיפות */
+.font-row {
+  width: 100%; min-height: 48px; display: flex; align-items: center; gap: 10px;
+  padding: 0 12px; margin: 0 0 10px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--panel); color: inherit;
+}
+.font-row small, .opts .lbl { color: var(--ink-2, #5b6577); font-size: 13px; min-width: 52px; text-align: start; }
+.font-row .fname { flex: 1; text-align: start; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.font-row svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; }
+.font-list { margin: 0 0 12px; border: 1.5px solid var(--line); border-radius: 12px; padding: 8px; }
+.font-list .field { margin: 0 0 6px; }
+.font-list .fl-items { max-height: 38vh; overflow-y: auto; overflow-x: hidden; }
+.font-list h3 { font-size: 13px; font-weight: 600; color: var(--ink-2, #5b6577); margin: 10px 6px 4px; }
+.fl-item {
+  width: 100%; min-height: 44px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  border: 0; background: none; color: inherit; padding: 8px; border-radius: 8px; font-size: 18px; text-align: start;
+}
+.fl-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-item small { font-size: 12px; color: var(--ink-2, #5b6577); white-space: nowrap; font-family: system-ui, sans-serif; }
+.fl-item[aria-pressed="true"] { background: var(--ink-blue-wash); color: var(--ink-blue); }
+.fl-note { color: var(--ink-2, #5b6577); font-size: 14px; margin: 8px 6px; }
+.bgs .ink { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .2); }
+.bgs .ink[aria-pressed="true"] { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .2), 0 0 0 3px #fff, 0 0 0 5px var(--ink-blue); }
+.ink.none { background: linear-gradient(135deg, #fff 44%, #C23A2E 44% 56%, #fff 56%); }
+.op-row input { flex: 1; accent-color: var(--ink-blue); }
+.op-row output { min-width: 40px; text-align: end; font-variant-numeric: tabular-nums; }
+.op-row[hidden] { display: none; }
+.bgs { flex-wrap: wrap; gap: 8px; } .bgs .ink { width: 30px; height: 30px; }

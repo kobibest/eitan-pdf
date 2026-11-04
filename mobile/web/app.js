@@ -1,6 +1,7 @@
 // איתןPDF לאנדרואיד — ממשק
 import { $, toast, busy, prompt, menu, choose, openSheet, closeTopSheet, esc, iso } from './js/ui.js';
-import { isNative, App, pickPdfs, onReceivedFiles, writeOver, saveAs, saveToFolder, share, readAsset, pickImages, takePhoto } from './js/native.js';
+import { isNative, App, pickPdfs, onReceivedFiles, writeOver, saveAs, saveToFolder, share, readAsset, pickImages, takePhoto, openUrl } from './js/native.js';
+import { BUILTIN, isDevice, fontLabel, fontCss, deviceFonts, ensureFace, editFontsFor } from './js/fonts.js';
 import { Viewer } from './js/viewer.js';
 import { PagesEditor } from './js/pages.js';
 import { Annotator } from './js/annotate.js';
@@ -47,6 +48,7 @@ const annot = new Annotator(viewer, {
     if (e && e.removed) toast('נמחק.', { action: { label: 'ביטול', fn: undo } });
   },
   onEditText: (it) => editText(it),
+  fontCss: (id) => fontCss(id || 'alef'),
   onField: (srcId, field) => fillField(srcId, field),
   digiInfo: () => ({ signer: S.digi.cert && S.digi.cert.name, date: todayStr(), reason: S.digi.reason, location: S.digi.location }),
 });
@@ -208,7 +210,7 @@ async function requestClose() {
 /* ---------- שמירה ---------- */
 
 async function buildBytes(opts) {
-  return S.doc.build(await fonts(), opts);
+  return S.doc.build(await fonts(), { ...opts, editFonts: await editFontsFor(S.doc, opts && opts.onWarning) });
 }
 
 /** לפני שמירה שכותבת את הקובץ מחדש: אזהרה אם זה יבטל חתימות דיגיטליות (כמו בדסקטופ) */
@@ -566,19 +568,68 @@ async function signFlow() {
   toast('גררו את החתימה למקום. הפינה הלבנה משנה את הגודל.');
 }
 
-/** מדידת רוחב טקסט בגופן Alef — כדי שהתיבה תהיה ברוחב הטקסט ולא תישבר אחרת מאשר בשמירה */
-async function textWidth(text, size, bold) {
-  await document.fonts.load(`${bold ? 700 : 400} ${size}px Alef`);
+/** מדידת רוחב טקסט בגופן של התיבה — כדי שהתיבה תהיה ברוחב הטקסט ולא תישבר אחרת מאשר בשמירה */
+async function textWidth(text, size, bold, font = 'alef') {
+  await ensureFace(font, bold);
   const ctx = (textWidth.c = textWidth.c || document.createElement('canvas')).getContext('2d');
-  ctx.font = `${bold ? 700 : 400} ${size}px Alef`;
+  ctx.font = `${bold ? 700 : 400} ${size}px ${fontCss(font)}`;
   return Math.max(...String(text).split('\n').map((l) => ctx.measureText(l).width));
 }
 
 async function fitTextBox(item, pageW) {
-  const w = Math.ceil(await textWidth(item.text, item.size, item.bold)) + 4;
+  const w = Math.ceil(await textWidth(item.text, item.size, item.bold, item.font)) + 4;
   item.w = Math.max(12, Math.min(pageW, w));
   // תיבה רחבה מהעמוד — מצמידים לשוליים
   if (item.x + item.w > pageW) item.x = Math.max(0, pageW - item.w);
+}
+
+// צבעי רקע לתיבת טקסט (בהירים, כמו מרקר) — כמו בדסקטופ
+const BG_COLORS = [
+  { hex: '#FFFFFF', name: 'לבן' },
+  { hex: '#FFF176', name: 'צהוב' },
+  { hex: '#B3E5FC', name: 'תכלת' },
+  { hex: '#C8E6C9', name: 'ירוק בהיר' },
+  { hex: '#F8BBD0', name: 'ורוד' },
+  { hex: '#E0E0E0', name: 'אפור' },
+];
+// הגופן והרקע האחרונים שנבחרו — גם לתיבות חדשות
+let lastText = { font: 'alef', bg: null, bgOpacity: 1 };
+
+/** רשימת גופנים בתוך הגיליון: חיפוש, הגופנים של האפליקציה ואז של הטלפון (עם עברית — ראשונים) */
+async function fontList(box, cur, onPick) {
+  box.innerHTML = '<input class="field" type="search" placeholder="חיפוש גופן" aria-label="חיפוש גופן"><div class="fl-items"><p class="fl-note">טוען את הגופנים שבטלפון…</p></div>';
+  const search = box.querySelector('input');
+  const items = box.querySelector('.fl-items');
+  const all = await deviceFonts();
+  const item = (id, label, note) => {
+    const b = document.createElement('button');
+    b.className = 'fl-item';
+    b.setAttribute('aria-pressed', String(id === cur));
+    b.innerHTML = `<span></span>${note ? `<small>${note}</small>` : ''}`;
+    b.firstChild.textContent = label;
+    b.firstChild.style.fontFamily = fontCss(id);
+    if (isDevice(id)) ensureFace(id, false);
+    b.addEventListener('click', () => onPick(id));
+    return b;
+  };
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const m = (n) => !q || n.toLowerCase().includes(q);
+    items.innerHTML = '';
+    const sec = (title, list) => {
+      if (!list.length) return;
+      const t = document.createElement('h3');
+      t.textContent = title;
+      items.append(t, ...list);
+    };
+    sec('מגיעים עם האפליקציה', BUILTIN.filter((f) => m(f.label)).map((f) => item(f.id, f.label)));
+    sec('בטלפון — עם עברית', all.filter((f) => f.hebrew && m(f.family)).map((f) => item('sys:' + f.family, f.family, f.bold ? '' : 'בלי מודגש')));
+    // בלי עברית: רק גופנים כלליים (לא גופני Noto של שפות אחרות)
+    sec('בטלפון — בלי עברית', all.filter((f) => !f.hebrew && m(f.family) && !/^Noto (Sans|Serif|Naskh|Kufi|Nastaliq|Rashi|Music|Color|Emoji)\b./.test(f.family)).map((f) => item('sys:' + f.family, f.family)));
+    if (!items.children.length) items.innerHTML = '<p class="fl-note">לא נמצא גופן בשם הזה.</p>';
+  };
+  search.addEventListener('input', draw);
+  draw();
 }
 
 const TEXT_SIZES = [{ v: 10, l: 'קטן' }, { v: 14, l: 'רגיל' }, { v: 18, l: 'גדול' }, { v: 26, l: 'כותרת' }];
@@ -586,7 +637,7 @@ const TEXT_SIZES = [{ v: 10, l: 'קטן' }, { v: 14, l: 'רגיל' }, { v: 18, l
 /** עורך טקסט (חדש או קיים) בגיליון תחתון */
 function textSheet(init) {
   return new Promise((resolve) => {
-    const st = { size: init.size, color: init.color, bold: !!init.bold };
+    const st = { size: init.size, color: init.color, bold: !!init.bold, font: init.font || 'alef', bg: init.bg || null, bgOpacity: init.bgOpacity == null ? 1 : init.bgOpacity };
     let done = false;
     const s = openSheet(`
       <h2>${init.isNew ? 'טקסט חדש' : 'עריכת טקסט'}</h2>
@@ -597,6 +648,13 @@ function textSheet(init) {
         <span class="spacer" style="flex:1"></span>
         <button class="chip-bold" data-bold aria-pressed="${st.bold}" aria-label="מודגש">B</button>
       </div>
+      <button class="font-row" data-font><small>גופן</small><span class="fname"></span><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      <div class="font-list" hidden></div>
+      <div class="opts bg-opts">
+        <small class="lbl">רקע</small>
+        <div class="inks bgs"><button class="ink none" data-bg="" aria-label="בלי רקע" aria-pressed="${!st.bg}"></button>${BG_COLORS.map((c) => `<button class="ink" data-bg="${c.hex}" aria-label="${c.name}" aria-pressed="${c.hex === st.bg}" style="--c:${c.hex}"></button>`).join('')}</div>
+      </div>
+      <label class="opts op-row" ${st.bg ? '' : 'hidden'}><small class="lbl">שקיפות</small><input type="range" min="0" max="90" step="5"><output></output></label>
       <div class="actions">
         <button class="btn" data-ok>${init.isNew ? 'הוספה' : 'אישור'}</button>
         <button class="btn quiet" data-cancel>ביטול</button>
@@ -614,10 +672,42 @@ function textSheet(init) {
       w.querySelectorAll('[data-c]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     }));
     const bold = w.querySelector('[data-bold]');
-    bold.addEventListener('click', () => { st.bold = !st.bold; bold.setAttribute('aria-pressed', String(st.bold)); });
-    w.querySelector('[data-ok]').addEventListener('click', () => {
+    bold.addEventListener('click', () => { st.bold = !st.bold; bold.setAttribute('aria-pressed', String(st.bold)); preview(); });
+    // תצוגה בתיבת ההקלדה: הגופן והרקע שנבחרו
+    const preview = () => {
+      ta.style.fontFamily = fontCss(st.font);
+      ta.style.fontWeight = st.bold ? '700' : '400';
+      const n = st.bg ? parseInt(st.bg.slice(1), 16) : 0;
+      ta.style.background = st.bg ? `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${st.bgOpacity})` : '';
+      ensureFace(st.font, st.bold);
+    };
+    const fname = w.querySelector('.fname');
+    const showFont = () => { fname.textContent = fontLabel(st.font); fname.style.fontFamily = fontCss(st.font); };
+    const fl = w.querySelector('.font-list');
+    w.querySelector('[data-font]').addEventListener('click', () => {
+      if (!fl.hidden) { fl.hidden = true; return; }
+      fl.hidden = false;
+      fontList(fl, st.font, (id) => { st.font = id; fl.hidden = true; showFont(); preview(); });
+    });
+    const opRow = w.querySelector('.op-row');
+    const range = opRow.querySelector('input');
+    const out = opRow.querySelector('output');
+    range.value = Math.round((1 - st.bgOpacity) * 100);
+    out.textContent = range.value + '%';
+    range.addEventListener('input', () => { st.bgOpacity = 1 - range.value / 100; out.textContent = range.value + '%'; preview(); });
+    w.querySelectorAll('[data-bg]').forEach((b) => b.addEventListener('click', () => {
+      st.bg = b.dataset.bg || null;
+      w.querySelectorAll('[data-bg]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      opRow.hidden = !st.bg;
+      preview();
+    }));
+    showFont();
+    preview();
+    w.querySelector('[data-ok]').addEventListener('click', async () => {
       done = true;
-      resolve({ text: ta.value.replace(/\s+$/, ''), size: st.size, color: st.color, bold: st.bold });
+      lastText = { font: st.font, bg: st.bg, bgOpacity: st.bgOpacity };
+      await ensureFace(st.font, st.bold);
+      resolve({ text: ta.value.replace(/\s+$/, ''), size: st.size, color: st.color, bold: st.bold, font: st.font, bg: st.bg, bgOpacity: st.bgOpacity });
       s.close();
     });
     w.querySelector('[data-cancel]').addEventListener('click', () => s.close());
@@ -627,10 +717,10 @@ function textSheet(init) {
 
 async function addText() {
   if (!S.doc) return;
-  const r = await textSheet({ isNew: true, text: '', size: 14, color: INK_COLORS[0].hex, bold: false });
+  const r = await textSheet({ isNew: true, text: '', size: 14, color: INK_COLORS[0].hex, bold: false, ...lastText });
   if (!r || !r.text.trim()) return;
   const item = { type: 'text', align: 'right', ...r, x: 0, w: 0 };
-  item.w = Math.ceil(await textWidth(item.text, item.size, item.bold)) + 4;
+  item.w = Math.ceil(await textWidth(item.text, item.size, item.bold, item.font)) + 4;
   item.w = Math.min(item.w, viewer.sizes[viewer.visibleCenter().i].w);
   placeStamp(item);
 }
@@ -1043,7 +1133,7 @@ async function digitalSignAndSave() {
   try {
     const f = await fonts();
     signed = await heavy('חותם…', async () => {
-      const bytes = original ? original.bytes : await D.build(f, { protect: false });
+      const bytes = original ? original.bytes : await D.build(f, { protect: false, editFonts: await editFontsFor(D) });
       const when = new Date();
       const date = when.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + when.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
       const DS = window.DigiSig;
@@ -1150,13 +1240,17 @@ async function goToPagePrompt() {
 
 /* ---------- אודות ---------- */
 
+const SITE_URL = 'https://digital.m-eitan.co.il/';
+
 function about() {
   const b = window.BUILD_INFO || {};
-  openSheet(`
+  const s = openSheet(`
     <img class="about-logo" src="img/logo.png" alt="">
     <h2 style="text-align:center">איתן<span style="color:var(--gold-deep)">PDF</span> לאנדרואיד</h2>
     <p style="text-align:center">עבודה עם PDF בעברית, חינם. הקבצים נשארים בטלפון ולא נשלחים לשום מקום.</p>
+    <p style="text-align:center">פותח על ידי קובי איתן<br><a href="${SITE_URL}" data-site>digital.m-eitan.co.il</a></p>
     <p class="about-meta">${esc(b.version || '')}${b.commit ? ' · ' + esc(b.commit) : ''}</p>`);
+  s.wrap.querySelector('[data-site]').addEventListener('click', (e) => { e.preventDefault(); openUrl(SITE_URL).catch(() => toast('לא הצלחתי לפתוח את הקישור.', { error: true })); });
 }
 
 /* ---------- אירועים ---------- */

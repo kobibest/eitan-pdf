@@ -158,6 +158,14 @@ export class Annotator {
       t.style.color = it.color;
       t.style.fontWeight = it.bold ? '700' : '400';
       t.style.textAlign = it.align || 'right';
+      if (this.hooks.fontCss) t.style.fontFamily = this.hooks.fontCss(it.font);
+      if (it.bg) {
+        // רקע: בולט 2 יחידות מכל צד, בלי להזיז את הטקסט — כמו בקובץ השמור
+        const n = parseInt(it.bg.slice(1), 16);
+        const c = `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${it.bgOpacity == null ? 1 : it.bgOpacity})`;
+        t.style.background = c;
+        t.style.boxShadow = `0 0 0 calc(var(--s) * 2px) ${c}`;
+      }
       el.append(t);
     }
     if (sel) {

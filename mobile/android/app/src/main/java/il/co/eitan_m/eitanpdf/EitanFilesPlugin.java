@@ -81,6 +81,67 @@ public class EitanFilesPlugin extends Plugin {
         f.delete();
     }
 
+    /* ---------- גופני הטלפון (לתיבות טקסט) ---------- */
+
+    @PluginMethod
+    public void listFonts(PluginCall call) {
+        io.execute(() -> {
+            try {
+                JSArray arr = new JSArray();
+                for (SystemFonts.Family f : SystemFonts.list()) {
+                    JSObject o = new JSObject();
+                    o.put("family", f.family);
+                    o.put("hebrew", f.hebrew);
+                    o.put("bold", f.bold != null);
+                    arr.put(o);
+                }
+                JSObject ret = new JSObject();
+                ret.put("fonts", arr);
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("רשימת הגופנים נכשלה: " + e.getMessage());
+            }
+        });
+    }
+
+    /** קובץ גופן (Base64) — רק של משפחה שנמצאה בסריקה, לא נתיב שרירותי */
+    @PluginMethod
+    public void readFont(PluginCall call) {
+        String family = call.getString("family", "");
+        boolean bold = Boolean.TRUE.equals(call.getBoolean("bold", false));
+        io.execute(() -> {
+            String path = SystemFonts.pathOf(family, bold);
+            if (path == null) { call.reject("הגופן לא נמצא"); return; }
+            try (InputStream in = new FileInputStream(path)) {
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+                JSObject ret = new JSObject();
+                ret.put("data", Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP));
+                ret.put("bold", bold && SystemFonts.hasBold(family));
+                call.resolve(ret);
+            } catch (IOException e) {
+                call.reject("קריאת הגופן נכשלה: " + e.getMessage());
+            }
+        });
+    }
+
+    /** פתיחת קישור בדפדפן */
+    @PluginMethod
+    public void openUrl(PluginCall call) {
+        String url = call.getString("url", "");
+        if (!url.startsWith("https://") && !url.startsWith("http://")) { call.reject("קישור לא תקין"); return; }
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.resolve();
+        } catch (ActivityNotFoundException e) {
+            call.reject("אין דפדפן במכשיר");
+        }
+    }
+
     /* ---------- בחירה מתוך האפליקציה ---------- */
 
     @PluginMethod

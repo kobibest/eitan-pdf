@@ -2262,6 +2262,7 @@ async function about() {
       <div class="body">
         <p class="ver">גרסה ${esc(v)}</p>
         <p>תוכנה חינמית בקוד פתוח לעבודה עם קבצי PDF בעברית. כל העיבוד נעשה על המחשב שלכם, בלי אינטרנט ובלי להעלות קבצים.</p>
+        <p>פותחה על ידי קובי איתן — <a href="https://digital.m-eitan.co.il/" target="_blank" rel="noopener">digital.m-eitan.co.il</a></p>
         <p>בנויה על pdf.js, pdf-lib ו-bidi-js. גופנים: Alef ו-IBM Plex Sans Hebrew (רישיון OFL).</p>
       </div>
     </div></div>`);

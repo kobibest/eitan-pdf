@@ -226,7 +226,7 @@ export class Doc {
    * בניית הקובץ דרך המנוע המשותף.
    * pages — ברירת מחדל: כל העמודים. protect=false — בלי הצפנה (לפני פיצול)
    */
-  async build(fonts, { pages = this.pages, protect = true, onWarning } = {}) {
+  async build(fonts, { pages = this.pages, protect = true, onWarning, editFonts } = {}) {
     const sources = {};
     for (const s of this.sources.values()) sources[s.id] = s.bytes;
     const ex = this.extras;
@@ -236,6 +236,7 @@ export class Doc {
     for (const [k, list] of Object.entries(this.stamps)) stamps[k] = list.filter((it) => it.type !== 'digisig');
     const out = await Ops.buildDocument(sources, pages.map((p) => ({ ...p })), stamps, this.formValues, {
       fonts,
+      editFonts, // גופנים לתיבות טקסט (IBM Plex וגופנים מהטלפון) — ראו js/fonts.js
       // בהשחרה משטחים את הטפסים — אחרת הערכים נשארים בשדות שמתחת (כמו בדסקטופ)
       flattenForms: redacted.length > 0,
       watermark: ex.watermark.enabled && ex.watermark.text.trim() ? ex.watermark : null,
