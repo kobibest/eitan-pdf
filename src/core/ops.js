@@ -212,7 +212,8 @@
 
   /**
    * ציור חותמות על עמוד. קואורדינטות ביחידות PDF, ראשית בפינה השמאלית-עליונה של התצוגה.
-   * stamp: { type: 'text'|'image'|'rect'|'mark', x, y, w, h, text, size, color, align, image(dataUrl|bytes), opacity, shape('check'|'x') }
+   * stamp: { type: 'text'|'image'|'rect'|'mark', x, y, w, h, text, size, color, align, image(dataUrl|bytes), opacity, shape('check'|'x'),
+   *          bg (צבע רקע לתיבת טקסט), bgOpacity }
    */
   async function drawStamps(doc, page, stamps, fonts) {
     const images = [];
@@ -224,6 +225,16 @@
           const img = images[imgIdx++];
           page.drawImage(img, { x: s.x, y: vh - s.y - s.h, width: s.w, height: s.h, opacity: s.opacity == null ? 1 : s.opacity });
         } else if (s.type === 'text' && s.text) {
+          if (s.bg) {
+            // רקע התיבה: בגובה השורות בפועל, בולט 2 יחידות מכל צד (כמו בעורך)
+            const font = s.bold ? fonts.bold : fonts.regular;
+            const m = H.measureBlock(s.text, font, s.size || 14, s.w);
+            const pad = 2;
+            page.drawRectangle({
+              x: s.x - pad, y: vh - s.y - m.height - pad, width: s.w + pad * 2, height: m.height + pad * 2,
+              color: hexToRgb(s.bg), opacity: s.bgOpacity == null ? 1 : s.bgOpacity,
+            });
+          }
           H.drawText(page, s.text, {
             x: s.x, y: vh - s.y, width: s.w, size: s.size || 14,
             font: s.bold ? fonts.bold : fonts.regular,

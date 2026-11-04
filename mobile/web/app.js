@@ -497,7 +497,7 @@ async function splitDialog() {
   await deliverFiles(files, files.length === 1 ? 'קובץ אחד מוכן' : `${files.length} קבצים מוכנים`);
 }
 
-/* ---------- חתימה, טקסט ותאריך ---------- */
+/* ---------- חתימה וטקסט ---------- */
 
 let stampSeq = 1;
 
@@ -633,14 +633,6 @@ async function addText() {
   item.w = Math.ceil(await textWidth(item.text, item.size, item.bold)) + 4;
   item.w = Math.min(item.w, viewer.sizes[viewer.visibleCenter().i].w);
   placeStamp(item);
-}
-
-async function addDate() {
-  if (!S.doc) return;
-  const item = { type: 'text', align: 'right', text: todayStr(), size: 14, color: INK_COLORS[0].hex, bold: false };
-  item.w = Math.ceil(await textWidth(item.text, item.size, false)) + 4;
-  placeStamp(item);
-  toast('גררו את התאריך למקום. הקשה עליו פותחת עריכה.');
 }
 
 async function editText(it) {
@@ -1196,7 +1188,6 @@ $('#btn-find').addEventListener('click', () => (finder.isOpen ? finder.close() :
 $('#tb-pages').addEventListener('click', openPages);
 $('#tb-sign').addEventListener('click', signFlow);
 $('#tb-text').addEventListener('click', addText);
-$('#tb-date').addEventListener('click', addDate);
 $('#tb-tools').addEventListener('click', toolsSheet);
 $('#btn-images').addEventListener('click', () => imagesToNewDoc('gallery'));
 $('#btn-camera').addEventListener('click', () => imagesToNewDoc('camera'));

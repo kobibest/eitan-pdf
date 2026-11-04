@@ -659,6 +659,33 @@ async function makeForm() {
     assert.deepStrictEqual(PS.pageLines(doc, 1), []); // עמוד בלי טקסט
   });
 
+  await ok('תיבת טקסט עם רקע ושקיפות: מלבן בגובה השורות, מתחת לטקסט', async () => {
+    const d = await PDFDocument.create();
+    d.addPage([595, 842]);
+    const src = await d.save();
+    const out = await Ops.buildDocument({ a: src }, [{ src: 'a', index: 0 }], {
+      'a:0': [{ type: 'text', x: 100, y: 100, w: 200, size: 20, color: '#000000', text: 'שורה ראשונה\nשורה שנייה', align: 'right', bg: '#FFF176', bgOpacity: 0.5 }],
+    }, {}, { fonts });
+    const doc = await PDFDocument.load(out);
+    const page = doc.getPage(0);
+    const zlib = require('zlib');
+    const all = page.node.normalizedEntries().Contents.asArray().map((r) => {
+      const b = Buffer.from(doc.context.lookup(r).getContents());
+      try { return zlib.inflateSync(b).toString('latin1'); } catch (e) { return b.toString('latin1'); }
+    }).join('\n');
+    // pdf-lib: הזזה לפינה העליונה ואז נתיב 0,0 → w,0 → w,h
+    const m = all.match(/gs\n1 0 0 1 (-?[\d.]+) (-?[\d.]+) cm[\s\S]*?0 0 m\n([\d.]+) 0 l\n[\d.]+ ([\d.]+) l/);
+    assert.ok(m, 'אין מלבן רקע');
+    const [x, top, w, h] = m.slice(1).map(Number);
+    assert.ok(Math.abs(x - 98) < 0.01 && Math.abs(w - 204) < 0.01, `x/w: ${x} ${w}`);
+    assert.ok(Math.abs(h - (2 * 1.25 * 20 + 4)) < 0.01, 'גובה: ' + h); // שתי שורות + 2 מכל צד
+    assert.ok(Math.abs(top - (842 - 100 + 2)) < 0.01, 'למעלה: ' + top);
+    const tj = all.search(/T[jJ]\b/);
+    assert.ok(tj > all.indexOf(' m\n'), 'הרקע צריך להיות מתחת לטקסט');
+    const gs = page.node.Resources().lookup(require('pdf-lib').PDFName.of('ExtGState'));
+    assert.ok(gs && /\/ca 0\.5\b/.test(String([...gs.asMap().values()].map((v) => String(doc.context.lookup(v))).join(' '))), 'שקיפות חסרה');
+  });
+
   /* ---------- המרה ל-Word ---------- */
   const Docx = require('../src/core/docx.js');
   const { unzipSync, strFromU8 } = require('fflate');

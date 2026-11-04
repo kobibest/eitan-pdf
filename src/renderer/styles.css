@@ -930,3 +930,20 @@ body.no-panel .find-bar { left: 20px; }
 .find-bar .icon-btn svg { width: 17px; height: 17px; }
 .find-hit { position: absolute; pointer-events: none; border-radius: 2px; background: rgba(245, 178, 39, .38); mix-blend-mode: multiply; }
 .find-hit.cur { background: rgba(245, 140, 20, .62); box-shadow: 0 0 0 2px var(--gold-deep); }
+/* רקע לתיבת טקסט */
+.item-bar .bg-wrap { position: relative; display: inline-flex; }
+.item-bar .bg-wrap > .icon-btn { position: relative; }
+.item-bar .bg-dot { position: absolute; bottom: 3px; left: 7px; right: 7px; height: 4px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(27,36,48,.25); }
+.item-bar .bg-wrap > .icon-btn svg { margin-bottom: 4px; }
+.bg-pop {
+  position: absolute; top: calc(100% + 8px); inset-inline-start: -8px;
+  display: grid; gap: 10px; padding: 10px;
+  background: var(--paper); border-radius: var(--r-ctl); box-shadow: var(--shadow-pop); z-index: 6;
+}
+.bg-pop .bg-row { display: flex; gap: 6px; }
+.bg-pop .swatch { width: 22px; height: 22px; box-shadow: inset 0 0 0 1px rgba(27,36,48,.25); }
+.bg-pop .swatch.none { background: linear-gradient(135deg, #fff 45%, #C23A2E 45% 55%, #fff 55%); }
+.bg-pop .bg-op { display: flex; align-items: center; gap: 8px; font-size: var(--fs-s); }
+.bg-pop .bg-op input { flex: 1; accent-color: var(--ink-blue); }
+.bg-pop .bg-op output { min-width: 34px; text-align: end; font-variant-numeric: tabular-nums; }
+.bg-pop .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); }

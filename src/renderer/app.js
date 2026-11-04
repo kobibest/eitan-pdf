@@ -32,6 +32,7 @@ const ICONS = {
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  fillBg: '<path d="M5 19h14"/><path d="M8 15 12 5l4 10M9.6 11h4.8"/>',
   bold: '<path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z"/>',
   alignR: '<path d="M4 6h16M8 10h12M4 14h16M10 18h10"/>',
   alignC: '<path d="M4 6h16M7 10h10M4 14h16M8 18h8"/>',
@@ -86,6 +87,24 @@ const INK_COLORS = [
   { hex: '#C23A2E', name: 'אדום' },
   { hex: '#2F7D5B', name: 'ירוק' },
 ];
+// צבעי רקע לתיבת טקסט (בהירים, כמו מרקר)
+const BG_COLORS = [
+  { hex: '#FFFFFF', name: 'לבן' },
+  { hex: '#FFF176', name: 'צהוב' },
+  { hex: '#B3E5FC', name: 'תכלת' },
+  { hex: '#C8E6C9', name: 'ירוק בהיר' },
+  { hex: '#F8BBD0', name: 'ורוד' },
+  { hex: '#E0E0E0', name: 'אפור' },
+];
+let lastTextBg = { bg: null, bgOpacity: 1 }; // הרקע האחרון שנבחר — גם לתיבות חדשות
+
+/** צבע הרקע של תיבת טקסט ב-CSS (או null) */
+function bgCss(it) {
+  if (!it.bg) return null;
+  const n = parseInt(it.bg.slice(1), 16);
+  const a = it.bgOpacity == null ? 1 : it.bgOpacity;
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+}
 
 /** הכלים בסרגל הימני. doc=true: דורש מסמך פתוח. panel=false: בלי לוח אפשרויות */
 const TOOLS = [
@@ -693,9 +712,9 @@ function placeItem(ctx, x, y) {
   const { p } = ctx;
   let item;
   const id = 'i' + seq++;
-  if (S.placing === 'text' || S.placing === 'date') {
+  if (S.placing === 'text') {
     const size = 14;
-    item = { id, type: 'text', text: S.placing === 'date' ? todayStr() : '', size, color: INK_COLORS[0].hex, w: S.placing === 'date' ? 110 : 220, align: 'right', bold: false };
+    item = { id, type: 'text', text: '', size, color: INK_COLORS[0].hex, w: 220, align: 'right', bold: false, ...lastTextBg };
     item.x = Math.max(0, Math.min(ctx.vw - item.w, x - item.w + 10));
     item.y = Math.max(0, y - size * 0.75);
   } else if (S.placing === 'signature' || S.placing === 'image') {
@@ -710,10 +729,6 @@ function placeItem(ctx, x, y) {
     item = { id, type: 'mark', shape: S.mark.shape, color: S.mark.color, w: size, h: size };
     item.x = Math.max(0, Math.min(ctx.vw - size, x - size / 2));
     item.y = Math.max(0, Math.min(ctx.vh - size, y - size / 2));
-  } else if (S.placing === 'rect') {
-    item = { id, type: 'rect', color: '#ffffff', w: 160, h: 40 };
-    item.x = Math.max(0, x - 80);
-    item.y = Math.max(0, y - 20);
   } else if (S.placing === 'digisig') {
     item = { id, type: 'digisig', w: 210, h: 62, image: S.signature || null };
     item.x = Math.max(0, Math.min(ctx.vw - item.w, x - item.w / 2));
@@ -771,10 +786,29 @@ function drawItems(ctx) {
       keep.style.top = it.y * ctx.scale + 'px';
       keep.style.width = it.w * ctx.scale + 'px';
       const ta = keep.querySelector('textarea');
-      if (ta) ta.style.fontSize = it.size * ctx.scale + 'px';
+      if (ta) styleText(keep, ta, it, ctx.scale);
+      // הסרגל נבנה מחדש כדי להראות את הבחירה החדשה (ואם חלון הרקע היה פתוח — נשאר פתוח)
+      const old = keep.querySelector('.item-bar');
+      if (old) {
+        const wasOpen = !!old.querySelector('.bg-pop');
+        const nb = itemBar(ctx, it);
+        old.replaceWith(nb);
+        if (wasOpen) nb.querySelector('.bg-wrap > .icon-btn')?.click();
+      }
       // לא מזיזים אותו ב-DOM — הזזה מעבירה פוקוס
     } else overlay.append(itemEl(ctx, it));
   }
+}
+
+/** עיצוב תיבת טקסט: גופן, צבע, יישור, ורקע שנמתח מעט מעבר לטקסט (בלי להזיז אותו) — בדיוק כמו בקובץ השמור */
+function styleText(el, ta, it, scale) {
+  ta.style.fontSize = it.size * scale + 'px';
+  ta.style.color = it.color;
+  ta.style.fontWeight = it.bold ? '700' : '400';
+  ta.style.textAlign = it.align || 'right';
+  const bg = bgCss(it);
+  el.style.background = bg || '';
+  el.style.boxShadow = bg ? `0 0 0 ${TEXT_BG_PAD * scale}px ${bg}` : '';
 }
 
 function itemEl(ctx, it) {
@@ -789,10 +823,7 @@ function itemEl(ctx, it) {
   if (it.type === 'text') {
     const ta = h('<textarea rows="1" dir="auto" spellcheck="false" placeholder="הקלידו כאן"></textarea>');
     ta.value = it.text;
-    ta.style.fontSize = it.size * scale + 'px';
-    ta.style.color = it.color;
-    ta.style.fontWeight = it.bold ? '700' : '400';
-    ta.style.textAlign = it.align || 'right';
+    styleText(el, ta, it, scale);
     const fit = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
     requestAnimationFrame(fit);
     let before = null;
@@ -920,7 +951,7 @@ function itemBar(ctx, it) {
       b.onclick = () => update(() => { it.color = c.hex; });
       bar.append(b);
     }
-    bar.append(h('<span class="sep"></span>'));
+    bar.append(h('<span class="sep"></span>'), bgButton(it, update), h('<span class="sep"></span>'));
   } else if (it.type === 'mark') {
     for (const [shape, label] of [['check', 'סימון V'], ['x', 'סימון X']]) {
       const b = h(`<button class="icon-btn ${it.shape === shape ? 'on' : ''}" title="${label}" aria-label="${label}" aria-pressed="${it.shape === shape}">${markSvg(shape, 'currentColor')}</button>`);
@@ -939,6 +970,48 @@ function itemBar(ctx, it) {
   del.onclick = () => deleteActiveItem();
   bar.append(del);
   return bar;
+}
+
+const TEXT_BG_PAD = 2; // כמה הרקע בולט מעבר לטקסט (יחידות PDF) — זהה ב-ops.js
+
+/** כפתור "רקע" בסרגל של תיבת טקסט: צבע רקע ושקיפות */
+function bgButton(it, update) {
+  const wrap = h('<span class="bg-wrap"></span>');
+  const btn = h(`<button class="icon-btn ${it.bg ? 'on' : ''}" title="צבע רקע ושקיפות" aria-label="צבע רקע" aria-haspopup="true">${icon('fillBg')}<span class="bg-dot"></span></button>`);
+  btn.querySelector('.bg-dot').style.background = bgCss(it) || 'transparent';
+  wrap.append(btn);
+  const remember = () => { lastTextBg = { bg: it.bg || null, bgOpacity: it.bgOpacity == null ? 1 : it.bgOpacity }; };
+  btn.onclick = () => {
+    if (wrap.querySelector('.bg-pop')) { wrap.querySelector('.bg-pop').remove(); return; }
+    const pop = h(`<div class="bg-pop" role="dialog" aria-label="רקע התיבה">
+      <div class="bg-row"></div>
+      <label class="bg-op"><span>שקיפות</span><input type="range" min="0" max="90" step="5"><output></output></label></div>`);
+    const row = pop.querySelector('.bg-row');
+    const none = h(`<button class="swatch none" title="בלי רקע" aria-label="בלי רקע" aria-pressed="${!it.bg}"></button>`);
+    none.onclick = () => { update(() => { it.bg = null; }); remember(); };
+    row.append(none);
+    for (const c of BG_COLORS) {
+      const b = h(`<button class="swatch" style="background:${c.hex}" title="${c.name}" aria-label="${c.name}" aria-pressed="${it.bg === c.hex}"></button>`);
+      b.onclick = () => { update(() => { it.bg = c.hex; }); remember(); };
+      row.append(b);
+    }
+    const range = pop.querySelector('input');
+    const out = pop.querySelector('output');
+    const show = () => { out.textContent = range.value + '%'; };
+    range.value = Math.round((1 - (it.bgOpacity == null ? 1 : it.bgOpacity)) * 100);
+    range.disabled = !it.bg;
+    show();
+    // בזמן הגרירה — רק תצוגה; בשחרור — שמירה (שלב אחד בהיסטוריה)
+    range.oninput = () => {
+      show();
+      const el = btn.closest('.item');
+      const tmp = { bg: it.bg, bgOpacity: 1 - range.value / 100 };
+      if (el && it.bg) { const c = bgCss(tmp); el.style.background = c; el.style.boxShadow = el.style.boxShadow.replace(/rgba?\([^)]*\)/, c); }
+    };
+    range.onchange = () => { update(() => { it.bgOpacity = 1 - range.value / 100; }); remember(); };
+    wrap.append(pop);
+  };
+  return wrap;
 }
 
 function deleteActiveItem() {
@@ -1255,7 +1328,7 @@ function refreshEdits(key) {
 /** לחיצה על מקום בעמוד שאין בו שורה */
 async function emptyEditClick(ctx) {
   const { base } = await pageLines(ctx.p);
-  if (!base.length) toast('לא נמצא טקסט שאפשר לערוך בעמוד הזה. ייתכן שהוא סרוק כתמונה — אפשר להשתמש ב"כיסוי לבן" ו"טקסט" בכלי טקסט וחתימה.');
+  if (!base.length) toast('לא נמצא טקסט שאפשר לערוך בעמוד הזה. ייתכן שהוא סרוק כתמונה — אפשר להוסיף "טקסט" עם רקע לבן בכלי טקסט וחתימה.');
   if (S.editSel) { S.editSel = null; refreshEdits(); refreshEditPanel(); }
 }
 
@@ -1288,7 +1361,7 @@ async function openLineEditor(ctx, idx, ev) {
   const b = base[idx];
   if (!b) return;
   if (unreadable(b)) {
-    toast('לא ניתן לזהות את האותיות בשורה הזו (הפונט במסמך לא כולל מידע על התווים). אפשר לכסות אותה ב"כיסוי לבן" ולכתוב מעליה.', { error: true });
+    toast('לא ניתן לזהות את האותיות בשורה הזו (הפונט במסמך לא כולל מידע על התווים). אפשר לכתוב מעליה "טקסט" עם רקע לבן.', { error: true });
     return;
   }
   const layer = ctx.overlay.querySelector('.edit-layer');
@@ -2952,10 +3025,8 @@ function signTools() {
       <div class="tool-grid">
         <button class="tool" data-t="text" aria-pressed="${S.placing === 'text'}">${icon('text')}טקסט</button>
         <button class="tool" data-t="signature" aria-pressed="${S.placing === 'signature'}">${icon('sign')}חתימה</button>
-        <button class="tool" data-t="date" aria-pressed="${S.placing === 'date'}">${icon('date')}תאריך<small>${todayStr()}</small></button>
         <button class="tool" data-t="mark" aria-pressed="${S.placing === 'mark'}">${icon('mark')}סימון<small>V או X בתיבה</small></button>
         <button class="tool" data-t="redact" aria-pressed="${S.placing === 'redact'}">${icon('redact')}השחרה<small>מוחקת לצמיתות</small></button>
-        <button class="tool" data-t="rect" aria-pressed="${S.placing === 'rect'}">${icon('erase')}כיסוי לבן<small>מסתיר בלבד</small></button>
         <button class="tool" data-t="image" aria-pressed="${S.placing === 'image'}">${icon('image')}תמונה או חותמת</button>
       </div>
     </div>`);
