@@ -130,6 +130,10 @@ function createWindow() {
         { label: 'העתקה', role: 'copy' },
         { label: 'הדבקה', role: 'paste' },
         { label: 'בחירת הכל', accelerator: 'CmdOrCtrl+A', click: send('select-all') },
+        { type: 'separator' },
+        { label: 'חיפוש בקובץ…', accelerator: 'CmdOrCtrl+F', click: send('find') },
+        { label: 'התוצאה הבאה', accelerator: 'F3', click: send('find-next') },
+        { label: 'התוצאה הקודמת', accelerator: 'Shift+F3', click: send('find-prev') },
       ],
     },
     {

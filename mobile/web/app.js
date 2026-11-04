@@ -7,6 +7,7 @@ import { Annotator } from './js/annotate.js';
 import { drawSignature, savedSignatures, forgetSignature, imageRatio, closeSignaturePad, INK_COLORS } from './js/signature.js';
 import { chooseCert, openCert, certLine, signatureRow, heavy } from './js/digital.js';
 import { Doc, loadSource, baseName } from './js/doc.js';
+import { Finder } from './js/find.js';
 
 const Ops = window.PdfOps;
 
@@ -18,6 +19,7 @@ const ICON = {
   saveAs: '<svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v6M5 3v18h7"/><path d="M8 3v5h7V3M15 15l3 3 3-3M18 18v-7"/></svg>',
   share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/></svg>',
   add: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M12.5 10.5v7M9 14h7"/></svg>',
+  find: '<svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></svg>',
   folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6M9 13l3 3 3-3"/></svg>',
 };
 
@@ -36,6 +38,8 @@ const editor = new PagesEditor($('#grid-scroller'), $('#grid'), {
   onReorder: (keys) => { if (S.doc.reorder(keys)) { editor.render(); refreshDoc(); } },
 });
 
+const finder = new Finder(viewer, $('#find-bar'), { getDoc: () => S.doc });
+
 const annot = new Annotator(viewer, {
   onChange: (e) => {
     refreshDoc();
@@ -50,6 +54,7 @@ const annot = new Annotator(viewer, {
 async function showDoc(opts) {
   await viewer.open(S.doc.refs(), opts);
   await annot.attach(S.doc);
+  finder.refresh();
 }
 
 const todayStr = () => new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -172,6 +177,8 @@ function pickFailed(err) {
 }
 
 function closeDoc() {
+  finder.close();
+  finder.query = '';
   annot.selected = null;
   viewer.close();
   editor.close();
@@ -334,6 +341,7 @@ async function deliverFiles(files, what) {
 
 function openPages() {
   if (!S.doc) return;
+  finder.close();
   showScreen('pages');
   editor.open(S.doc);
   refreshDoc();
@@ -1078,6 +1086,7 @@ $('#page-pill').addEventListener('click', goToPagePrompt);
 $('#btn-menu').addEventListener('click', async () => {
   const choice = await menu([
     { id: 'open', label: 'פתיחת קובץ אחר', icon: ICON.open },
+    { id: 'find', label: 'חיפוש בקובץ', icon: ICON.find },
     { id: 'goto', label: 'מעבר לעמוד', icon: ICON.page },
     { id: 'add', label: 'הוספת קובץ לסוף המסמך', icon: ICON.add },
     { id: 'saveas', label: 'שמירה בשם…', icon: ICON.saveAs },
@@ -1085,6 +1094,7 @@ $('#btn-menu').addEventListener('click', async () => {
     { id: 'about', label: 'אודות', icon: ICON.info },
   ]);
   if (choice === 'open') chooseAndOpen();
+  else if (choice === 'find') finder.open();
   else if (choice === 'goto') goToPagePrompt();
   else if (choice === 'saveas') saveAsNew();
   else if (choice === 'add') pickAndAdd();
@@ -1092,6 +1102,7 @@ $('#btn-menu').addEventListener('click', async () => {
   else if (choice === 'about') about();
 });
 
+$('#btn-find').addEventListener('click', () => (finder.isOpen ? finder.close() : finder.open()));
 $('#tb-pages').addEventListener('click', openPages);
 $('#tb-sign').addEventListener('click', signFlow);
 $('#tb-text').addEventListener('click', addText);
@@ -1143,6 +1154,7 @@ if (isNative) {
   App.addListener('backButton', () => {
     if (closeSignaturePad()) return;
     if (closeTopSheet()) return;
+    if (S.screen === 'viewer' && finder.close()) return;
     if (S.screen === 'viewer' && annot.selected) { annot.select(null); return; }
     if (S.screen === 'pages') {
       if (editor.selected.size) editor.selectAll(false); else closePages();

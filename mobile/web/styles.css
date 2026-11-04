@@ -513,3 +513,23 @@ svg { flex: none; }
 .sheet .sub-h { font-size: 15px; font-weight: 700; color: var(--navy); margin: 14px 0 8px; }
 .check-row { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; }
 .check-row input { width: 20px; height: 20px; accent-color: var(--ink-blue); }
+
+/* ===== חיפוש בקובץ ===== */
+.find-bar {
+  position: absolute; inset: 0; z-index: 3;
+  display: flex; align-items: center; gap: 2px;
+  background: var(--navy);
+  padding: var(--sa-top) calc(var(--sa-right) + 4px) 0 calc(var(--sa-left) + 4px);
+}
+.find-bar[hidden] { display: none; }
+.find-bar input {
+  flex: 1; min-width: 0; height: 40px; border: 0; border-radius: 10px; outline: none;
+  padding: 0 12px; font: inherit; font-size: 16px; color: var(--ink, #14203A); background: #fff;
+}
+.find-bar input::-webkit-search-cancel-button { display: none; }
+.find-count { min-width: 46px; padding: 0 4px; text-align: center; font-size: 13px; color: #AFC0EE; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.find-count.none { color: #FFB4A8; }
+.find-bar .icon-btn:disabled { opacity: .35; }
+.page .find-layer { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.find-layer .find-hit { position: absolute; border-radius: 2px; background: rgba(245, 178, 39, .38); mix-blend-mode: multiply; }
+.find-layer .find-hit.cur { background: rgba(245, 140, 20, .62); box-shadow: 0 0 0 2px #D98A0B; }

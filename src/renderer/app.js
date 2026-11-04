@@ -47,6 +47,10 @@ const ICONS = {
   windows: '<rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/>',
   save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
   zoomIn: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4M8.5 11h5M11 8.5v5"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/>',
+  chevUp: '<path d="m6 15 6-6 6 6"/>',
+  chevDown: '<path d="m6 9 6 6 6-6"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
   zoomOut: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4M8.5 11h5"/>',
   fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   fitW: '<path d="M3.5 5v14M20.5 5v14M7 12h10M7 12l2.5-2.5M7 12l2.5 2.5M17 12l-2.5-2.5M17 12l-2.5 2.5"/>',
@@ -628,6 +632,7 @@ function editorPage(p, i, maxW, maxH) {
     if (!info.blank) drawFields(ctx, info);
     drawItems(ctx);
     drawEdits(ctx);
+    drawFindHits(ctx);
   };
   lazy.observe(frame);
   drawItems(ctx);
@@ -966,6 +971,159 @@ function pageLines(p) {
     })());
   }
   return lineCache.get(k);
+}
+
+/* =========================================================
+ * חיפוש בקובץ (Ctrl+F) — המנוע המשותף לדסקטופ ולאנדרואיד נמצא ב-src/core/search.js
+ * ======================================================= */
+const F = { open: false, query: '', results: [], cur: -1, done: true, scanned: 0, noText: false, token: 0, sig: '' };
+// results: [{ key, rects: [[x0,y0,x1,y1]] }] בסדר העמודים ובסדר הקריאה
+
+const findSig = () => `${activeId}|${S.pages.map((p) => p.key + ':' + (p.rotate || 0)).join(',')}`;
+
+function openFind() {
+  const d = D();
+  if (!d || !d.pages.length) return;
+  F.open = true;
+  renderFindBar();
+  const inp = $('#find-bar input');
+  inp.focus();
+  inp.select();
+  // פתיחה מחדש: מחפשים שוב את מה שהיה בשורה (השורות כבר במטמון, אז זה מהיר)
+  if (F.query && (!F.results.length || F.sig !== findSig())) runFind();
+}
+
+function closeFind() {
+  F.open = false;
+  F.token++;
+  F.results = [];
+  F.cur = -1;
+  const bar = $('#find-bar');
+  if (bar) bar.remove();
+  drawAllFindHits();
+}
+
+function renderFindBar() {
+  let bar = $('#find-bar');
+  if (!F.open) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = h(`
+      <div class="find-bar" id="find-bar" role="search">
+        ${icon('search')}
+        <input type="search" dir="auto" placeholder="חיפוש בקובץ" aria-label="חיפוש בקובץ" spellcheck="false">
+        <span class="find-count" aria-live="polite"></span>
+        <button class="icon-btn" data-a="prev" title="הקודם (Shift+Enter)" aria-label="התוצאה הקודמת">${icon('chevUp')}</button>
+        <button class="icon-btn" data-a="next" title="הבא (Enter)" aria-label="התוצאה הבאה">${icon('chevDown')}</button>
+        <button class="icon-btn" data-a="close" title="סגירה (Esc)" aria-label="סגירת החיפוש">${icon('x')}</button>
+      </div>`);
+    const inp = bar.querySelector('input');
+    inp.value = F.query;
+    let t;
+    inp.addEventListener('input', () => { F.query = inp.value; clearTimeout(t); t = setTimeout(runFind, 220); });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); clearTimeout(t); if (F.query !== inp.value || F.sig !== findSig()) { F.query = inp.value; runFind(); } else stepFind(e.shiftKey ? -1 : 1); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind(); }
+    });
+    bar.querySelector('[data-a=prev]').onclick = () => stepFind(-1);
+    bar.querySelector('[data-a=next]').onclick = () => stepFind(1);
+    bar.querySelector('[data-a=close]').onclick = closeFind;
+    $('.workspace').append(bar);
+  }
+  const n = F.results.length;
+  const count = bar.querySelector('.find-count');
+  const q = window.PdfSearch.normalize(F.query);
+  count.classList.toggle('none', !!q && F.done && !n);
+  count.textContent = !q ? '' : n ? `${F.cur + 1} מתוך ${n}${F.done ? '' : '…'}`
+    : !F.done ? `מחפש… ${F.scanned}/${S.pages.length}`
+      : F.noText ? 'אין טקסט בקובץ (סריקה?)' : 'לא נמצא';
+  bar.querySelector('[data-a=prev]').disabled = n < 2 && F.cur <= 0;
+  bar.querySelector('[data-a=next]').disabled = !n;
+}
+
+/** חיפוש בכל העמודים, לפי הסדר. התוצאות מתווספות תוך כדי, והראשונה מוצגת מיד */
+async function runFind() {
+  const token = ++F.token;
+  F.results = [];
+  F.cur = -1;
+  F.done = false;
+  F.scanned = 0;
+  F.sig = findSig();
+  const q = window.PdfSearch.normalize(F.query);
+  drawAllFindHits();
+  if (!q) { F.done = true; renderFindBar(); return; }
+  renderFindBar();
+  const pages = S.pages.slice();
+  let anyText = false;
+  for (const p of pages) {
+    const { lines } = await pageLines(p);
+    if (token !== F.token) return;
+    if (lines.length) anyText = true;
+    for (const m of window.PdfSearch.findInLines(lines, F.query)) F.results.push({ key: p.key, rects: m.rects });
+    F.scanned++;
+    if (F.cur < 0 && F.results.length) { F.cur = 0; showFindResult(); }
+    if (F.scanned % 5 === 0) { renderFindBar(); await new Promise((r) => setTimeout(r, 0)); if (token !== F.token) return; }
+  }
+  F.done = true;
+  F.noText = !anyText;
+  renderFindBar();
+  drawAllFindHits();
+}
+
+function stepFind(dir) {
+  const n = F.results.length;
+  if (!n) return;
+  F.cur = (F.cur + dir + n) % n;
+  showFindResult();
+  renderFindBar();
+}
+
+/** מעבר לתוצאה הנוכחית: לעמוד שלה (ולכלי צפייה, אם צריך), וגלילה כך שהיא במרכז */
+function showFindResult() {
+  const r = F.results[F.cur];
+  if (!r) return;
+  const idx = S.pages.findIndex((p) => p.key === r.key);
+  if (idx < 0) return;
+  if (!PAGE_COLUMN_TOOLS.has(S.tool)) setView('view');
+  const d = D();
+  goToPage(idx);
+  if (d) d.curPage = idx;
+  drawAllFindHits();
+  const reveal = (tries) => {
+    const frame = $(`#desk .page-frame[data-idx="${idx}"]`);
+    const hit = frame && frame.querySelector('.find-hit.cur');
+    if (!hit) { if (tries > 0) setTimeout(() => reveal(tries - 1), 120); return; }
+    const desk = $('#desk');
+    const hb = hit.getBoundingClientRect(), db = desk.getBoundingClientRect();
+    if (hb.top < db.top + 60 || hb.bottom > db.bottom - 20) desk.scrollTop += hb.top - db.top - desk.clientHeight / 3;
+    const dx = hb.left - db.left;
+    if (dx < 0 || hb.right > db.right) desk.scrollLeft += dx - desk.clientWidth / 3;
+  };
+  reveal(25);
+  renderFindBar();
+}
+
+/** ציור הסימונים של החיפוש על עמוד שכבר צויר */
+function drawFindHits(ctx) {
+  if (!ctx || !ctx.overlay) return;
+  ctx.overlay.querySelectorAll('.find-hit').forEach((el) => el.remove());
+  if (!F.open || !ctx.info || !F.results.length) return;
+  const tr = screenMap(ctx);
+  F.results.forEach((r, i) => {
+    if (r.key !== ctx.p.key) return;
+    for (const b of r.rects) {
+      const pts = [tr(b[0], b[1]), tr(b[2], b[3])];
+      const x = Math.min(pts[0][0], pts[1][0]), y = Math.min(pts[0][1], pts[1][1]);
+      const w = Math.abs(pts[0][0] - pts[1][0]), ht = Math.abs(pts[0][1] - pts[1][1]);
+      const el = document.createElement('div');
+      el.className = 'find-hit' + (i === F.cur ? ' cur' : '');
+      Object.assign(el.style, { left: x - 1.5 + 'px', top: y - 1.5 + 'px', width: w + 3 + 'px', height: ht + 3 + 'px' });
+      ctx.overlay.append(el);
+    }
+  });
+}
+
+function drawAllFindHits() {
+  document.querySelectorAll('#desk .page-frame').forEach((f) => drawFindHits(f.__ctx));
 }
 
 const editsOf = (key) => (S.stamps[key] || []).filter((it) => it.type === 'edit');
@@ -2175,11 +2333,17 @@ function render() {
   }
   desk.scrollTop = keepScroll;
   updateChrome();
+  if (F.open) {
+    if (!d || !d.pages.length) closeFind();
+    else if (F.sig !== findSig() && F.query) runFind(); // מסמך אחר, או עמודים שהשתנו
+    else renderFindBar();
+  }
 }
 
 function updateChrome() {
   const d = D();
   $('#btn-save').disabled = !d || !d.pages.length;
+  $('#btn-find').disabled = !d || !d.pages.length;
   $('#btn-save').classList.toggle('dirty', !!(d && d.dirty));
   updateViewCtl();
   document.title = d ? `${d.title}${d.dirty ? ' •' : ''} — איתןPDF` : 'איתןPDF';
@@ -3116,6 +3280,7 @@ async function saveAs(opts = {}) {
  * ======================================================= */
 function wire() {
   $('#btn-save').onclick = () => saveDocument();
+  $('#btn-find').onclick = () => (F.open ? closeFind() : openFind());
   buildViewCtl();
 
   // מעקב אחרי העמוד הנוכחי, ובמצב "עמוד יחיד" — גלילה בקצה מעבירה עמוד
@@ -3144,6 +3309,9 @@ function wire() {
     if (cmd === 'open') openDialog();
     else if (cmd === 'save') saveDocument();
     else if (cmd === 'save-as') saveAs();
+    else if (cmd === 'find') openFind();
+    else if (cmd === 'find-next') { if (F.open && F.results.length) stepFind(1); else openFind(); }
+    else if (cmd === 'find-prev') { if (F.open && F.results.length) stepFind(-1); else openFind(); }
     else if (cmd === 'compress') { if (D() && S.pages.length) activate(activeId, 'compress'); }
     else if (cmd === 'close-tab') { if (activeId) closeTab(activeId); }
     else if (cmd === 'undo') { if (!isTyping()) undo(); else document.execCommand('undo'); }

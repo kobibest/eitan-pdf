@@ -604,6 +604,61 @@ async function makeForm() {
     assert.ok(r.unchanged && r.bytes === src);
   });
 
+  await ok('חיפוש: reorderWithMap זהה ל-toVisual ומחזיר מאיפה הגיע כל תו', () => {
+    const samples = ['שלום עולם', 'המחיר 1,250.50 ש"ח', '(שלום) [x]', 'שָׁלוֹם 123 abc', 'Plain English', 'טלפון 03-5551234 (משרד) או office@example.co.il', 'א-ב, 2026/118 ₪', ''];
+    for (const t of samples) {
+      for (const dir of ['rtl', 'ltr']) {
+        const r = H.reorderWithMap(t, dir);
+        assert.strictEqual(r.text, H.toVisual(t, dir), t);
+        assert.strictEqual(r.from.length, r.text.length);
+        assert.deepStrictEqual([...r.from].sort((a, b) => a - b), Array.from(t, (_, k) => k), 'כל תו מופיע פעם אחת');
+      }
+    }
+  });
+
+  await ok('חיפוש: עברית, מספרים, גרשיים, רווחים, אותיות גדולות, סוגריים — בקבצים אמיתיים', async () => {
+    const PS = require('../src/core/search.js');
+    const load = async (f) => PDFDocument.load(fs.readFileSync(path.join(__dirname, 'fixtures', f)));
+    const count = (doc, q) => doc.getPages().reduce((n, _, i) => n + PS.findInLines(PS.pageLines(doc, i), q).length, 0);
+    const lease = await load('הסכם שכירות.pdf');
+    assert.strictEqual(count(lease, 'השכירות'), 6);
+    assert.strictEqual(count(lease, '6,450 ש"ח'), count(lease, '6,450 ש״ח')); // גרשיים עבריים = מירכאות
+    assert.ok(count(lease, '6,450 ש"ח') >= 1);
+    assert.strictEqual(count(lease, '  הסכם   שכירות '), count(lease, 'הסכם שכירות'));
+    assert.strictEqual(count(lease, 'אין-כזה-דבר'), 0);
+    assert.strictEqual(count(lease, ''), 0);
+    const chrome = await load('chromium.pdf');
+    assert.strictEqual(count(chrome, 'OFFICE@EXAMPLE.CO.IL'), 1);
+    assert.strictEqual(count(chrome, '03-5551234 (משרד)'), 1);
+    assert.strictEqual(count(chrome, 'plain english'), 1);
+    const lo = await load('libreoffice-letter.pdf');
+    assert.strictEqual(count(lo, '(סניף ת"א)'), 1); // LibreOffice שומר סוגריים הפוכים
+    assert.strictEqual(count(lo, '12,300.50 ₪'), 1);
+    // המלבן הוא של המילה בלבד, בתוך השורה
+    const [m] = PS.findInLines(PS.pageLines(lease, 0), 'השכירות');
+    assert.strictEqual(m.rects.length, 1);
+    const [r] = m.rects, b = m.line.box;
+    assert.ok(r[0] >= b[0] - 0.5 && r[2] <= b[2] + 0.5 && r[1] >= b[1] - 0.5 && r[3] <= b[3] + 0.5, 'מחוץ לשורה');
+    assert.ok(r[2] - r[0] < (b[2] - b[0]) / 3, 'המלבן רחב מדי — כל השורה ולא המילה');
+  });
+
+  await ok('חיפוש: ניקוד לא מפריע, ועמוד מסובב/סרוק לא שובר', async () => {
+    const PS = require('../src/core/search.js');
+    const d = await PDFDocument.create();
+    d.addPage([595, 842]);
+    const src = await d.save();
+    const out = await Ops.buildDocument({ a: src, b: src }, [{ src: 'a', index: 0, rotate: 90 }, { src: 'b', index: 0 }], {
+      'a:0': [{ type: 'text', x: 40, y: 60, w: 400, size: 20, color: '#000000', text: 'בְּרֵאשִׁית בָּרָא שָׁלוֹם 2026', align: 'right' }],
+    }, {}, { fonts });
+    const doc = await PDFDocument.load(out);
+    const lines = PS.pageLines(doc, 0);
+    assert.strictEqual(PS.findInLines(lines, 'שלום').length, 1, PS.indexLine(lines[0], lines).plain);
+    assert.strictEqual(PS.findInLines(lines, 'שָׁלוֹם').length, 1);
+    assert.strictEqual(PS.findInLines(lines, 'בראשית ברא').length, 1);
+    assert.strictEqual(PS.findInLines(lines, 'שלום 2026').length, 1);
+    assert.deepStrictEqual(PS.pageLines(doc, 1), []); // עמוד בלי טקסט
+  });
+
   await ok('המנוע נטען במצב דפדפן (כמו ב-WebView של אנדרואיד) וכותב עברית', async () => {
     const out = await require('./browser-globals.js').run(fonts);
     fs.writeFileSync(path.join(OUT, 'browser-globals.pdf'), out);

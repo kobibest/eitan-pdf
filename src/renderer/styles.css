@@ -866,3 +866,22 @@ select.form-field { padding: 0 2px; }
 .digisig-box img { width: auto !important; max-width: 40%; height: auto !important; max-height: 90%; order: 2; }
 .digisig-lines { flex: 1; min-width: 0; text-align: right; }
 .digisig-lines div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ===== חיפוש בקובץ ===== */
+.workspace { position: relative; }
+.find-bar {
+  position: absolute; top: 12px; left: calc(var(--panel-w) + 20px); z-index: 20;
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 6px 5px 6px; padding-inline-start: 12px;
+  background: var(--paper); border-radius: var(--r-pop); box-shadow: var(--shadow-pop);
+}
+body.no-panel .find-bar { left: 20px; }
+.find-bar > svg { width: 17px; height: 17px; fill: none; stroke: var(--ink-3); stroke-width: 1.8; stroke-linecap: round; flex: none; }
+.find-bar input { width: 220px; height: 32px; border: 0; outline: none; background: transparent; font: inherit; color: var(--ink); padding: 0 6px; }
+.find-bar input::-webkit-search-cancel-button { display: none; }
+.find-count { min-width: 72px; font-size: var(--fs-s); color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: center; }
+.find-count.none { color: var(--stamp); }
+.find-bar .icon-btn { width: 30px; height: 30px; }
+.find-bar .icon-btn svg { width: 17px; height: 17px; }
+.find-hit { position: absolute; pointer-events: none; border-radius: 2px; background: rgba(245, 178, 39, .38); mix-blend-mode: multiply; }
+.find-hit.cur { background: rgba(245, 140, 20, .62); box-shadow: 0 0 0 2px var(--gold-deep); }

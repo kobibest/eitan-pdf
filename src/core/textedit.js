@@ -601,16 +601,22 @@
       let visual = '';
       let prevEnd = null;
       const all = [];
+      // vmap: לכל תו ב-visual — האינדקס של הגליף שלו ב-glyphs (או -1 לרווח שנוסף כאן). משמש לחיפוש
+      let vmap = [];
       for (const it of L.items) {
         const sz = it.g.size;
-        if (prevEnd != null && it.u - prevEnd > sz * 0.2 && !/\s$/.test(visual) && !/^\s/.test(it.g.u)) visual += ' ';
+        if (prevEnd != null && it.u - prevEnd > sz * 0.2 && !/\s$/.test(visual) && !/^\s/.test(it.g.u)) { visual += ' '; vmap.push(-1); }
+        const gi = all.length + (it.marks ? it.marks.length : 0);
         visual += it.g.u;
+        for (let k = 0; k < it.g.u.length; k++) vmap.push(gi);
         // ניקוד: בסדר חזותי הסימן בא אחרי האות (hebrew.js שומר מקבצים)
-        if (it.marks) for (const m of it.marks) { visual += m.g.u; all.push(m.g); }
+        if (it.marks) for (const m of it.marks) { visual += m.g.u; for (let k = 0; k < m.g.u.length; k++) vmap.push(all.length); all.push(m.g); }
         all.push(it.g);
         prevEnd = Math.max(prevEnd == null ? -Infinity : prevEnd, it.u + it.g.advUser);
       }
+      const lead = visual.length - visual.replace(/^\s+/, '').length;
       visual = visual.replace(/\s+$/, '').replace(/^\s+/, '');
+      vmap = vmap.slice(lead, lead + visual.length);
       const bb = [Infinity, Infinity, -Infinity, -Infinity];
       for (const g of all) {
         bb[0] = Math.min(bb[0], g.bbox[0]); bb[1] = Math.min(bb[1], g.bbox[1]);
@@ -629,7 +635,7 @@
       const c = Math.cos(L.ang), s = Math.sin(L.ang);
       const origin = [L.u0 * c - L.v * s, L.u0 * s + L.v * c];
       return {
-        glyphs: all, visual, box: bb, origin, angle: L.ang, width: L.u1 - L.u0, size,
+        glyphs: all, visual, vmap, box: bb, origin, angle: L.ang, width: L.u1 - L.u0, size,
         bold: boldCount > L.items.length / 2, color: fill, ok,
         fontName: first.font.name,
         // קואורדינטות לאורך השורה: u0..u1 לאורך קו הבסיס, v — גובה קו הבסיס

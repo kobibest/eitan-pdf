@@ -45,9 +45,19 @@
       <button class="icon-btn" id="btn-undo-view" aria-label="ביטול הפעולה האחרונה" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7H9.5A4.5 4.5 0 0 0 5 11.5v0A4.5 4.5 0 0 0 9.5 16H17"/><path d="M12 4l3 3-3 3"/></svg>
       </button>
+      <button class="icon-btn" id="btn-find" aria-label="חיפוש בקובץ">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></svg>
+      </button>
       <button class="icon-btn" id="btn-menu" aria-label="עוד">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
       </button>
+      <div class="find-bar" id="find-bar" role="search" hidden>
+        <button class="icon-btn" data-a="close" aria-label="סגירת החיפוש"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+        <input type="search" dir="auto" enterkeyhint="search" placeholder="חיפוש בקובץ" aria-label="חיפוש בקובץ" autocomplete="off" spellcheck="false">
+        <span class="find-count" aria-live="polite"></span>
+        <button class="icon-btn" data-a="prev" aria-label="התוצאה הקודמת" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg></button>
+        <button class="icon-btn" data-a="next" aria-label="התוצאה הבאה" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      </div>
     </header>
     <div class="scroller" id="scroller">
       <div class="pages" id="pages"></div>
@@ -110,6 +120,7 @@
   <script src="core/ops.js"></script>
   <script src="core/redact.js"></script>
   <script src="core/compress.js"></script>
+  <script src="core/search.js"></script>
   <!-- חתימה דיגיטלית: src/core/digisig.js של הדסקטופ, ארוז ל-WebView (scripts/build-web.mjs) -->
   <script src="core/digisig.bundle.js"></script>
   <script type="module" src="app.js"></script>

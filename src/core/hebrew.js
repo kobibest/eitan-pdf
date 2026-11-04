@@ -91,6 +91,44 @@
   }
 
   /**
+   * כמו toVisual, אבל מחזיר גם מאיפה הגיע כל תו: { text, from } כאשר text[j] בא מ-source[from[j]].
+   * (ההמרה סימטרית, ולכן משמשת גם לכיוון חזותי→לוגי.) הבדיקות מוודאות שהטקסט זהה ל-toVisual.
+   */
+  function reorderWithMap(text, direction) {
+    if (!text) return { text: '', from: [] };
+    let dir = direction || 'auto';
+    if (dir === 'auto') dir = detectDirection(text);
+    if (dir === 'ltr' && !hasRTL(text)) return { text, from: Array.from(text, (_, k) => k) };
+    const { levels } = bidi.getEmbeddingLevels(text, dir);
+    const mirrors = bidi.getMirroredCharactersMap(text, levels);
+    const cl = clusters(text).map((c) => {
+      let s = '';
+      const from = [];
+      for (let k = c.start; k < c.end; k++) { s += mirrors.has(k) ? mirrors.get(k) : text[k]; from.push(k); }
+      return { s, from, level: levels[c.start] };
+    });
+    let max = 0;
+    let minOdd = Infinity;
+    for (const c of cl) {
+      if (c.level > max) max = c.level;
+      if (c.level % 2 === 1 && c.level < minOdd) minOdd = c.level;
+    }
+    for (let lvl = max; lvl >= minOdd && minOdd !== Infinity; lvl--) {
+      let i = 0;
+      while (i < cl.length) {
+        if (cl[i].level >= lvl) {
+          let j = i;
+          while (j < cl.length && cl[j].level >= lvl) j++;
+          const rev = cl.slice(i, j).reverse();
+          for (let k = 0; k < rev.length; k++) cl[i + k] = rev[k];
+          i = j;
+        } else i++;
+      }
+    }
+    return { text: cl.map((c) => c.s).join(''), from: cl.flatMap((c) => c.from) };
+  }
+
+  /**
    * המרה הפוכה: מחרוזת חזותית (כפי שהיא מצוירת ב-PDF, משמאל לימין) למחרוזת לוגית.
    * אלגוריתם ה-bidi (היפוך רצפים + שיקוף סוגריים) מחזיר את עצמו במקרים הרגילים,
    * ולכן ההמרה ההפוכה היא אותה פעולה. הקורא בודק הלוך-חזור עם roundTrips.
@@ -238,5 +276,5 @@
     return { lines: lines.length, width: lw, height: lines.length * (lineHeight || 1.25) * size };
   }
 
-  return { toVisual, toLogical, roundTrips, hasRTL, detectDirection, wrapLines, drawText, measureBlock, clusters, embedFont, drawVisualLine };
+  return { toVisual, reorderWithMap, toLogical, roundTrips, hasRTL, detectDirection, wrapLines, drawText, measureBlock, clusters, embedFont, drawVisualLine };
 });
