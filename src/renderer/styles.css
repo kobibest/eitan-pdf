@@ -5,6 +5,7 @@
 @font-face { font-family: 'Plex'; src: url('../../assets/fonts/IBMPlexSansHebrew-Bold.ttf'); font-weight: 700; }
 @font-face { font-family: 'Alef'; src: url('../../assets/fonts/Alef-Regular.ttf'); font-weight: 400; }
 @font-face { font-family: 'Alef'; src: url('../../assets/fonts/Alef-Bold.ttf'); font-weight: 700; }
+@font-face { font-family: 'Alef'; src: url('../../assets/fonts/Alef-Bold.ttf'); font-weight: 700; }
 
 /* ===== טוקנים ===== */
 :root {
@@ -268,9 +269,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--line-soft); padding: 3px; border-radius: var(--r-ctl); gap: 2px; }
 .segmented button { border: 0; background: none; height: 30px; border-radius: 6px; font-size: var(--fs-s); font-weight: 500; color: var(--ink-2); }
 .segmented button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(27,36,48,.15); }
-/* שישה מצבים: שתי שורות של שלושה, כדי שהכל ייכנס בלוח הצר */
-.pages-modes { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
-.pages-modes button { white-space: nowrap; padding: 0 6px; }
+
 /* המרה: עמודים שלא נבחרו */
 .grid .sheet.dim { opacity: 0.35; }
 
@@ -421,32 +420,71 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .sheet-tools .icon-btn svg { width: 16px; height: 16px; }
 .sheet-tools .icon-btn.del:hover { color: var(--stamp); background: var(--stamp-wash); }
 
-/* פיצול: קבוצות */
-.split-groups { padding: 24px 28px 80px; display: flex; flex-direction: column; gap: 22px; }
-.split-group {
-  border: 1.5px dashed var(--g);
-  border-radius: var(--r-pop);
-  background: color-mix(in srgb, var(--g) 7%, transparent);
-  padding: 14px 18px 20px;
+/* עמודים: לוח אחד לסידור, הוספה ופיצול */
+.board { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 30px 0; padding: 28px 28px 80px; }
+.board .sheet { width: var(--thumb-w); }
+/* הרווח בין עמודים: + והמספריים מופיעים במעבר עכבר; פיצול פעיל — קו מקווקו אדום שנשאר */
+.gap {
+  width: 34px; align-self: stretch; position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  padding-bottom: 26px;
 }
-.split-group header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
-.split-group header b { font-weight: 600; color: var(--ink); }
-.split-group header span { color: var(--ink-2); font-size: var(--fs-s); }
-.split-group .grid { padding: 6px 0 0; gap: 22px 22px; }
-.manual-grid { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 0; padding: 28px 28px 80px; }
-.manual-grid .sheet { width: var(--thumb-w); }
-.cut {
-  width: 34px; align-self: stretch;
+.gap::before { content: ''; position: absolute; top: 4px; bottom: 30px; inset-inline-start: 50%; width: 0; border-inline-start: 2px dashed transparent; }
+.gap:hover::before { border-color: var(--line); }
+.gap.cut-on::before { border-color: var(--stamp); }
+.gap-btn {
+  position: relative; z-index: 1;
+  width: 28px; height: 28px; border-radius: 50%;
   display: grid; place-items: center;
-  border: 0; background: none; color: var(--ink-3);
-  position: relative;
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink-2);
+  box-shadow: 0 1px 3px rgba(27,36,48,.18);
+  opacity: 0; transform: scale(.85);
+  transition: opacity .12s, transform .12s, color .12s, background .12s;
 }
-.cut::before { content: ''; position: absolute; top: 4px; bottom: 30px; width: 0; border-inline-start: 2px dashed transparent; }
-.cut svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; position: relative; background: var(--desk); border-radius: 50%; padding: 1px; margin-bottom: 26px; }
-.cut:hover { color: var(--ink-blue); }
-.cut:hover::before { border-color: var(--ink-3); }
-.cut.on { color: var(--stamp); }
-.cut.on::before { border-color: var(--stamp); }
+.gap-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.gap:hover .gap-btn, .gap-btn:focus-visible { opacity: 1; transform: none; }
+.gap-btn:hover { color: var(--ink-blue); border-color: var(--ink-blue); }
+.gap-btn.cut:hover { color: var(--stamp); border-color: var(--stamp); }
+.gap.cut-on .gap-btn.cut { opacity: 1; transform: none; color: #fff; background: var(--stamp); border-color: var(--stamp); }
+/* כרטיס + בסוף העמודים */
+.add-tile {
+  width: var(--thumb-w); aspect-ratio: 1 / 1.3; margin-inline-start: 34px; margin-bottom: 26px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  border: 2px dashed var(--line); border-radius: var(--r-paper); background: transparent;
+  color: var(--ink-2); font-size: var(--fs-s); font-weight: 500;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.add-tile svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.add-tile:hover { border-color: var(--ink-blue); color: var(--ink-blue); background: color-mix(in srgb, var(--ink-blue) 5%, transparent); }
+/* חלקים בפיצול: פס צבעוני מתחת לכל עמוד ושם החלק */
+.sheet.in-part .paper { box-shadow: 0 4px 0 -1px var(--part), var(--shadow-paper); }
+.sheet.in-part.selected .paper { box-shadow: 0 0 0 3px var(--ink-blue), 0 7px 0 -1px var(--part), var(--shadow-lift); }
+.sheet-part { color: var(--part); font-weight: 600; white-space: nowrap; }
+.split-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 10px; }
+.split-quick .btn { height: 30px; padding: 0 10px; font-size: var(--fs-s); }
+.split-every { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-s); color: var(--ink-2); }
+.split-every .input { width: 52px; height: 30px; padding: 0 6px; text-align: center; }
+/* תפריט קטן ליד כפתור */
+.pop-menu {
+  position: fixed; z-index: 60; min-width: 210px; max-width: 320px;
+  background: var(--paper); border-radius: var(--r-pop); box-shadow: 0 10px 30px rgba(27,36,48,.22), 0 0 0 1px var(--line);
+  padding: 5px; display: flex; flex-direction: column;
+}
+.pop-menu button {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  border: 0; background: none; border-radius: 6px; padding: 8px 10px; text-align: start;
+  font: inherit; font-size: var(--fs-m); color: var(--ink);
+}
+.pop-menu button:hover, .pop-menu button:focus-visible { background: var(--line-soft); outline: none; }
+.pop-menu button svg { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.pop-menu .pm-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pop-menu small { color: var(--ink-3); font-size: var(--fs-xs); white-space: nowrap; }
+.pop-sep { height: 1px; background: var(--line); margin: 4px 6px; }
+/* סימן מים ומספרי עמודים — תצוגה על העמוד */
+.extras-box { display: flex; flex-direction: column; gap: 10px; margin: 2px 0 12px; }
+.extras-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.wm-prev { position: absolute; left: 50%; top: 50%; white-space: nowrap; font-family: 'Alef', sans-serif; font-weight: 700; line-height: 1; }
+.pn-prev { position: absolute; font-family: 'Alef', sans-serif; line-height: 1; white-space: nowrap; }
 
 /* ===== מצב חתימה ומילוי ===== */
 .pages-column { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 28px 24px 120px; }

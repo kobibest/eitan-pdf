@@ -37,6 +37,7 @@ const ICONS = {
   alignC: '<path d="M4 6h16M7 10h10M4 14h16M8 18h8"/>',
   alignL: '<path d="M4 6h16M4 10h12M4 14h16M4 18h10"/>',
   extract: '<path d="M6 3h9l4 4v14H6z"/><path d="M12 10v7M9 14l3 3 3-3"/>',
+  export: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 15h6M12.5 12l3 3-3 3"/>',
   dup: '<rect x="8" y="8" width="12" height="12" rx="1"/><path d="M16 8V4H4v12h4"/>',
   upload: '<path d="M12 15V4M8 8l4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
@@ -94,6 +95,7 @@ const TOOLS = [
   { id: 'edit', label: 'עריכת טקסט', icon: 'textEdit', doc: true },
   { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
   { id: 'security', label: 'אבטחה', icon: 'lock', doc: true },
+  { id: 'export', label: 'דחיסה והמרה', icon: 'export', doc: true },
   { id: 'windows', label: 'שילוב ב-Windows', icon: 'windows', doc: false, panel: false, bottom: true, winOnly: true },
 ].filter((t) => !t.winOnly || !window.api || !window.api.platform || window.api.platform === 'win32');
 const PAGE_COLUMN_TOOLS = new Set(['view', 'sign', 'edit', 'forms', 'security']);
@@ -156,27 +158,28 @@ const S = {
   fonts: null,
   pendingImage: null,
   mark: { shape: 'check', color: '#1B2430' }, // הסימון האחרון שנבחר — הסימון הבא יהיה כמוהו
-  pagesMode: 'arrange', // בתוך "עמודים": סידור / מיזוג / פיצול / סימן מים ומספור / דחיסה
+  exportMode: 'compress', // בלשונית "דחיסה והמרה"
   compressLevel: ['light', 'medium', 'strong'].includes(localStore('compressLevel')) ? localStore('compressLevel') : 'medium',
   compressResult: null, // { docId, level, before, after } — תוצאת הדחיסה האחרונה, להצגה בלוח
   convert: loadConvertPrefs(), // המרה ל-Word / לתמונות — ההגדרות נשמרות בין הפעלות
 };
-const PAGES_MODES = [
-  { id: 'arrange', label: 'סידור' },
-  { id: 'merge', label: 'מיזוג' },
-  { id: 'split', label: 'פיצול' },
-  { id: 'extras', label: 'סימן מים' },
+const EXPORT_MODES = [
   { id: 'compress', label: 'דחיסה' },
   { id: 'convert', label: 'המרה' },
 ];
-/** כלים ישנים (מיזוג/פיצול/סימון) הם עכשיו מצבים בתוך "עמודים" */
+/**
+ * שמות ישנים של כלים ומצבים: סידור, מיזוג ופיצול הם עכשיו מסך אחד ב"עמודים";
+ * סימן מים ומספור עמודים — ב"טקסט וחתימה"; דחיסה והמרה — בלשונית משלהן
+ */
 function normalizeTool(t) {
-  if (t === 'merge' || t === 'split' || t === 'extras' || t === 'compress' || t === 'convert') { S.pagesMode = t; return 'pages'; }
+  if (t === 'merge' || t === 'split' || t === 'arrange') return 'pages';
+  if (t === 'extras') return 'sign';
+  if (t === 'compress' || t === 'convert') { S.exportMode = t; return 'export'; }
   if (t === 'folder') return 'view'; // כלי שהוסר
   return t;
 }
-const inMerge = () => S.tool === 'pages' && S.pagesMode === 'merge';
-const inGrid = () => S.tool === 'pages' && (S.pagesMode === 'arrange' || S.pagesMode === 'merge');
+const inMerge = () => S.tool === 'pages';
+const inGrid = () => S.tool === 'pages';
 const EMPTY = { sources: new Map(), pages: [], stamps: {}, formValues: {}, selected: new Set(), split: { mode: 'each', every: 2, ranges: '', cuts: new Set() }, extras: { watermark: {}, pageNumbers: {} } };
 for (const k of ['sources', 'pages', 'stamps', 'formValues', 'selected', 'lastClicked', 'split', 'extras', 'flattenForms']) {
   Object.defineProperty(S, k, {
@@ -292,20 +295,21 @@ function pageLabel(p) {
   return `${baseName(s.name)}, עמ' ${p.index + 1}`;
 }
 
-async function addImages() {
+async function addImages(at) {
   const imgs = await api.openImages();
   if (!imgs.length) return;
   await busy('ממיר תמונות לעמודים…', async () => {
     const bytes = await Ops.imagesToPdf(imgs.map((i) => ({ bytes: i.bytes })));
     const name = imgs.length === 1 ? baseName(imgs[0].name.replace(/\.(png|jpe?g)$/i, '')) + '.pdf' : `תמונות (${imgs.length}).pdf`;
     return { name, bytes };
-  }).then((entry) => (inMerge() && D() ? addPdf(entry).then(render) : openEntries([entry])));
+  }).then((entry) => (inMerge() && D() ? addPdf(entry, { at: typeof at === 'number' ? at : null }).then(render) : openEntries([entry])));
 }
 
-function addBlank() {
+/** עמוד ריק. at — מיקום בין העמודים; בלי — אחרי הנבחרים, או בסוף */
+function addBlank(at) {
   const ref = S.pages.find((p) => p.src !== 'blank');
   commit(() => {
-    const at = S.selected.size ? Math.max(...[...S.selected].map((k) => S.pages.findIndex((p) => p.key === k))) + 1 : S.pages.length;
+    if (typeof at !== 'number') at = S.selected.size ? Math.max(...[...S.selected].map((k) => S.pages.findIndex((p) => p.key === k))) + 1 : S.pages.length;
     const p = { key: `blank:${blankSeq++}`, src: 'blank', index: 0, rotate: 0, w: 595.28, h: 841.89 };
     if (ref) { const sz = sourcePageSize(ref); if (sz) { p.w = sz.w; p.h = sz.h; } }
     S.pages.splice(at, 0, p);
@@ -413,12 +417,7 @@ function filesGroup() {
     else li.querySelector('button').onclick = () => removeSource(s.id);
     ul.append(li);
   }
-  const row = g.querySelector('.btn-row');
-  const add = h(`<button class="btn">${icon('plus')}הוספת קובץ</button>`);
-  add.onclick = addFilesToDoc;
-  const img = h(`<button class="btn">${icon('image')}תמונות</button>`);
-  img.onclick = addImages;
-  row.append(add, img);
+  g.querySelector('.btn-row').remove();
   return g;
 }
 
@@ -441,7 +440,7 @@ function deskBar() {
   range.oninput = () => {
     S.thumbW = +range.value;
     localStore('thumbW', String(S.thumbW));
-    document.querySelectorAll('.grid').forEach((g) => g.style.setProperty('--thumb-w', S.thumbW + 'px'));
+    document.querySelectorAll('.grid, .board').forEach((g) => g.style.setProperty('--thumb-w', S.thumbW + 'px'));
     document.querySelectorAll('.manual-grid .sheet').forEach((s) => (s.style.width = S.thumbW + 'px'));
     clearTimeout(range.__t);
     range.__t = setTimeout(render, 250);
@@ -635,9 +634,11 @@ function editorPage(p, i, maxW, maxH) {
     drawItems(ctx);
     drawEdits(ctx);
     drawFindHits(ctx);
+    drawExtras(ctx);
   };
   lazy.observe(frame);
   drawItems(ctx);
+  drawExtras(ctx);
 
   overlay.addEventListener('pointerdown', (e) => {
     if (e.target !== overlay) return;
@@ -1709,89 +1710,6 @@ function bytesToDataUrl(bytes, mime) {
   });
 }
 
-function splitGroups() {
-  const n = S.pages.length;
-  const sp = S.split;
-  if (sp.mode === 'each') return Ops.chunk(n, 1);
-  if (sp.mode === 'every') return Ops.chunk(n, sp.every || 1);
-  if (sp.mode === 'ranges') return Ops.parseRanges(sp.ranges, n);
-  // ידני
-  const groups = [[]];
-  S.pages.forEach((p, i) => {
-    groups[groups.length - 1].push(i);
-    if (sp.cuts.has(p.key) && i < n - 1) groups.push([]);
-  });
-  return groups;
-}
-
-function renderSplit() {
-  const panel = $('#panel');
-  const desk = $('#desk');
-  const sp = S.split;
-  const g = h(`
-    <div class="group">
-      <h2>איך לפצל</h2>
-      <div class="radio-list" role="radiogroup">
-        <label><input type="radio" name="sm" value="each" ${sp.mode === 'each' ? 'checked' : ''}><span><b>כל עמוד לקובץ נפרד</b></span></label>
-        <label><input type="radio" name="sm" value="every" ${sp.mode === 'every' ? 'checked' : ''}><span><b>כל כמה עמודים</b><small>למשל טפסים של 2 עמודים כל אחד</small></span></label>
-        <label><input type="radio" name="sm" value="ranges" ${sp.mode === 'ranges' ? 'checked' : ''}><span><b>לפי טווחים</b><small>למשל <bdi dir="ltr">1-3, 4, 7-</bdi></small></span></label>
-        <label><input type="radio" name="sm" value="manual" ${sp.mode === 'manual' ? 'checked' : ''}><span><b>חיתוך ידני</b><small>לוחצים על המספריים בין העמודים</small></span></label>
-      </div>
-    </div>`);
-  g.querySelectorAll('input[name=sm]').forEach((r) => (r.onchange = () => { sp.mode = r.value; render(); }));
-  if (sp.mode === 'every') {
-    const f = h(`<label class="field"><span>מספר עמודים בכל קובץ</span><input class="input" type="number" min="1" max="${S.pages.length}" value="${sp.every}"></label>`);
-    f.querySelector('input').oninput = (e) => { sp.every = Math.max(1, +e.target.value || 1); clearTimeout(f.__t); f.__t = setTimeout(render, 300); };
-    g.append(f);
-  }
-  if (sp.mode === 'ranges') {
-    const f = h(`<label class="field"><span>טווחי עמודים (מתוך ${S.pages.length})</span><input class="input" dir="ltr" style="text-align:right" placeholder="1-3, 5, 8-" value="${esc(sp.ranges)}"></label>`);
-    const inp = f.querySelector('input');
-    inp.oninput = () => { sp.ranges = inp.value; clearTimeout(f.__t); f.__t = setTimeout(() => { render(); const n = $('#panel input.input[dir=ltr]'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 450); };
-    g.append(f);
-  }
-  panel.append(g);
-
-  let groups = null;
-  let err = null;
-  try { groups = sp.mode === 'ranges' && !sp.ranges.trim() ? null : splitGroups(); } catch (e) { err = e.message; }
-
-  const out = h(`<div class="group"><h2>התוצאה</h2><p class="hint"></p><button class="btn btn-primary btn-block btn-lg" ${groups && groups.length ? '' : 'disabled'}>${icon('scissors')}פיצול ושמירה לתיקייה</button></div>`);
-  out.querySelector('.hint').innerHTML = err ? esc(err) : groups ? `${plural(groups.length, 'קובץ אחד', 'קבצים')} ייווצרו, בשמות כמו <bdi>${esc(baseName(defaultName()))} - חלק 1</bdi>.` : 'הקלידו טווחים כדי לראות איך יחולק המסמך.';
-  if (err) out.querySelector('.hint').style.color = 'var(--stamp)';
-  out.querySelector('button').onclick = () => doSplit(groups);
-  panel.append(out);
-
-  desk.append(deskBar());
-  if (sp.mode === 'manual') {
-    const grid = h('<div class="manual-grid"></div>');
-    S.pages.forEach((p, i) => {
-      const s = sheetEl(p, i, { static: true });
-      s.style.width = S.thumbW + 'px';
-      grid.append(s);
-      if (i < S.pages.length - 1) {
-        const on = sp.cuts.has(p.key);
-        const cut = h(`<button class="cut ${on ? 'on' : ''}" title="${on ? 'ביטול החיתוך' : 'חיתוך כאן'}" aria-label="${on ? 'ביטול החיתוך' : 'חיתוך'} אחרי עמוד ${i + 1}" aria-pressed="${on}">${icon('scissors')}</button>`);
-        cut.onclick = () => { on ? sp.cuts.delete(p.key) : sp.cuts.add(p.key); render(); };
-        grid.append(cut);
-      }
-    });
-    desk.append(grid);
-    return;
-  }
-  const wrap = h('<div class="split-groups"></div>');
-  (groups || []).forEach((grp, gi) => {
-    const color = FILE_COLORS[gi % FILE_COLORS.length];
-    const first = grp[0] + 1, last = grp[grp.length - 1] + 1;
-    const sec = h(`<section class="split-group" style="--g:${color}"><header><b>חלק ${gi + 1}</b><span>${grp.length === 1 ? `עמוד ${first}` : `עמודים ${first}–${last}`}</span></header><div class="grid"></div></section>`);
-    const grid = sec.querySelector('.grid');
-    grid.style.setProperty('--thumb-w', S.thumbW + 'px');
-    grp.forEach((idx) => grid.append(sheetEl(S.pages[idx], idx, { static: true })));
-    wrap.append(sec);
-  });
-  desk.append(wrap);
-}
-
 async function doSplit(groups) {
   const problem = securityProblem();
   if (problem) return toast(problem, { error: true });
@@ -1808,54 +1726,6 @@ async function doSplit(groups) {
   } catch (e) {
     toast('הפיצול נכשל: ' + e.message, { error: true });
   }
-}
-
-function renderExtras() {
-  const panel = $('#panel');
-  const desk = $('#desk');
-  const wm = S.extras.watermark;
-  const pn = S.extras.pageNumbers;
-  const g1 = h(`
-    <div class="group">
-      <label class="check"><input type="checkbox" data-k="wm" ${wm.enabled ? 'checked' : ''}><span><b style="font-weight:600">סימן מים</b><small>טקסט שקוף באלכסון על כל עמוד</small></span></label>
-      <div data-box="wm" ${wm.enabled ? '' : 'hidden'} style="display:flex;flex-direction:column;gap:10px">
-        <label class="field"><span>טקסט</span><input class="input" dir="auto" data-f="text" value="${esc(wm.text)}"></label>
-        <div class="row2">
-          <label class="field"><span>גודל</span><input class="input" type="number" min="12" max="200" data-f="size" value="${wm.size}"></label>
-          <label class="field"><span>שקיפות</span><select class="select input" data-f="opacity">
-            ${[[0.08, 'עדינה מאוד'], [0.16, 'עדינה'], [0.3, 'בינונית'], [0.5, 'בולטת']].map(([v, l]) => `<option value="${v}" ${wm.opacity === v ? 'selected' : ''}>${l}</option>`).join('')}
-          </select></label>
-        </div>
-        <div class="swatches" role="group" aria-label="צבע">${[['#C23A2E', 'אדום'], ['#1F35B5', 'כחול'], ['#5D6B72', 'אפור']].map(([c, n]) => `<button class="swatch" data-color="${c}" style="background:${c}" title="${n}" aria-label="${n}" aria-pressed="${wm.color === c}"></button>`).join('')}</div>
-      </div>
-    </div>`);
-  const g2 = h(`
-    <div class="group">
-      <label class="check"><input type="checkbox" data-k="pn" ${pn.enabled ? 'checked' : ''}><span><b style="font-weight:600">מספרי עמודים</b><small>בתחתית או בראש כל עמוד</small></span></label>
-      <div data-box="pn" ${pn.enabled ? '' : 'hidden'} style="display:flex;flex-direction:column;gap:10px">
-        <label class="field"><span>נוסח</span><select class="select input" data-p="format">
-          ${['עמוד {n} מתוך {total}', 'עמוד {n}', '{n}', '- {n} -', '{n}/{total}'].map((f) => `<option value="${esc(f)}" ${pn.format === f ? 'selected' : ''}>${esc(f.replace('{n}', '3').replace('{total}', '12'))}</option>`).join('')}
-        </select></label>
-        <label class="field"><span>מיקום</span><select class="select input" data-p="position">
-          ${[['bottom-center', 'למטה באמצע'], ['bottom-right', 'למטה מימין'], ['bottom-left', 'למטה משמאל'], ['top-center', 'למעלה באמצע'], ['top-right', 'למעלה מימין'], ['top-left', 'למעלה משמאל']].map(([v, l]) => `<option value="${v}" ${pn.position === v ? 'selected' : ''}>${l}</option>`).join('')}
-        </select></label>
-        <label class="check"><input type="checkbox" data-p="skipFirst" ${pn.skipFirst ? 'checked' : ''}><span>בלי מספר בעמוד הראשון (שער)</span></label>
-      </div>
-    </div>`);
-  const g3 = h('<div class="group"><p class="hint">ההגדרות יחולו על הקובץ בשמירה. התצוגה משמאל מראה את העמודים הראשונים.</p></div>');
-  panel.append(g1, g2, g3);
-
-  const preview = h('<div class="preview-wrap"></div>');
-  desk.append(preview);
-  let t;
-  const refresh = () => { clearTimeout(t); t = setTimeout(() => renderPreview(preview), 250); };
-
-  g1.querySelector('[data-k=wm]').onchange = (e) => { wm.enabled = e.target.checked; g1.querySelector('[data-box=wm]').hidden = !wm.enabled; if (wm.enabled && !wm.text) wm.text = 'טיוטה'; refresh(); };
-  g1.querySelectorAll('[data-f]').forEach((inp) => (inp.oninput = () => { const k = inp.dataset.f; wm[k] = k === 'text' ? inp.value : +inp.value; refresh(); }));
-  g1.querySelectorAll('[data-color]').forEach((b) => (b.onclick = () => { wm.color = b.dataset.color; g1.querySelectorAll('[data-color]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); refresh(); }));
-  g2.querySelector('[data-k=pn]').onchange = (e) => { pn.enabled = e.target.checked; g2.querySelector('[data-box=pn]').hidden = !pn.enabled; refresh(); };
-  g2.querySelectorAll('[data-p]').forEach((inp) => (inp.onchange = () => { const k = inp.dataset.p; pn[k] = inp.type === 'checkbox' ? inp.checked : inp.value; refresh(); }));
-  renderPreview(preview);
 }
 
 /* =========================================================
@@ -2117,37 +1987,6 @@ async function doConvert(pages) {
   }
 }
 
-let previewToken = 0;
-
-async function renderPreview(wrap) {
-  const token = ++previewToken;
-  const pages = S.pages.slice(0, Math.min(2, S.pages.length));
-  try {
-    const bytes = await buildBytes(pages, { totalOverride: S.pages.length });
-    if (token !== previewToken) return;
-    const pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: bytes }).promise;
-    const nodes = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const pg = await pdf.getPage(i);
-      const vp1 = pg.getViewport({ scale: 1 });
-      const cssW = 340;
-      const dpr = window.devicePixelRatio || 1;
-      const vp = pg.getViewport({ scale: (cssW / vp1.width) * dpr });
-      const c = document.createElement('canvas');
-      c.width = vp.width; c.height = vp.height;
-      c.style.width = cssW + 'px';
-      await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-      const box = h(`<div><div class="paper"></div><div class="preview-cap">עמוד ${i}</div></div>`);
-      box.querySelector('.paper').append(c);
-      nodes.push(box);
-    }
-    if (token === previewToken) wrap.replaceChildren(...nodes);
-    pdf.destroy();
-  } catch (e) {
-    if (token === previewToken) wrap.replaceChildren(h(`<p class="hint" style="padding:40px">לא הצלחנו להציג תצוגה מקדימה: ${esc(e.message)}</p>`));
-  }
-}
-
 /**
  * בניית הקובץ. opts.final — שמירה אמיתית: מחילים את הגדרות האבטחה (סיסמה/הגבלות).
  * חתימה דיגיטלית גלויה לא מצוירת כאן — היא נוספת בשלב החתימה עצמו.
@@ -2348,7 +2187,9 @@ async function addPdf(entry, opts = {}) {
   } else {
     const prev = activeId;
     activeId = doc.id;
-    commit(() => { doc.pages.push(...newPages); }, { render: false });
+    // opts.at — מיקום בין העמודים (כפתור + בין עמודים); בלי — בסוף
+    const at = opts.at == null ? doc.pages.length : Math.max(0, Math.min(doc.pages.length, opts.at));
+    commit(() => { doc.pages.splice(at, 0, ...newPages); }, { render: false });
     activeId = prev;
   }
   return src;
@@ -2381,7 +2222,7 @@ async function openMerged(entries) {
   });
   if (!d.sources.size) { docs.delete(d.id); return render(); }
   d.dirty = true;
-  activate(d.id, 'merge');
+  activate(d.id, 'pages');
 }
 
 async function openDialog() {
@@ -2389,17 +2230,23 @@ async function openDialog() {
   await openEntries(entries);
 }
 
-/** הוספת קבצים למסמך הפעיל (מיזוג) */
-async function addFilesToDoc() {
+/** הוספת קבצים למסמך הפעיל (מיזוג). at — מיקום בין העמודים; בלי — בסוף */
+async function addFilesToDoc(at) {
   const entries = await api.openPdfs();
   if (!entries.length) return;
   if (!D()) return openEntries(entries);
-  await busy('מוסיף קבצים…', async () => { for (const e of entries) await addPdf(e); });
+  let pos = typeof at === 'number' ? at : null; // גם כשנקרא ישירות מלחיצה (אירוע ולא מיקום)
+  await busy('מוסיף קבצים…', async () => {
+    for (const e of entries) {
+      const src = await addPdf(e, { at: pos });
+      if (src && pos != null) pos += src.count;
+    }
+  });
   render();
 }
 
-/** מיזוג לשונית פתוחה אחרת לתוך הלשונית הפעילה */
-async function mergeTabInto(otherId) {
+/** מיזוג לשונית פתוחה אחרת לתוך הלשונית הפעילה. at — מיקום בין העמודים; בלי — בסוף */
+async function mergeTabInto(otherId, at) {
   const other = docs.get(otherId);
   const d = D();
   if (!other || !d || other === d) return;
@@ -2410,16 +2257,18 @@ async function mergeTabInto(otherId) {
       remap.set(s.id, id);
       d.sources.set(id, { ...s, id, color: FILE_COLORS[d.sources.size % FILE_COLORS.length] });
     }
+    const added = [];
     for (const p of other.pages) {
       const np = { ...p };
       if (p.src !== 'blank') { np.src = remap.get(p.src); np.key = `${np.src}:${p.index}`; }
       else np.key = `blank:${blankSeq++}`;
       if (other.stamps[p.key]) d.stamps[np.key] = JSON.parse(JSON.stringify(other.stamps[p.key]));
-      d.pages.push(np);
+      added.push(np);
     }
+    d.pages.splice(at == null ? d.pages.length : at, 0, ...added);
     for (const [sid, vals] of Object.entries(other.formValues)) if (remap.has(sid)) d.formValues[remap.get(sid)] = { ...vals };
   });
-  toast(`"${other.title}" מוזג לסוף המסמך`);
+  toast(at == null || at >= d.pages.length - other.pages.length ? `"${other.title}" מוזג לסוף המסמך` : `"${other.title}" מוזג למסמך`);
 }
 
 function removeSource(id) {
@@ -2520,7 +2369,7 @@ function render() {
   } else {
     ({
       view: renderView, pages: renderPages, sign: renderSign, edit: renderEdit,
-      forms: renderForms, security: renderSecurity, windows: renderWindows,
+      forms: renderForms, security: renderSecurity, windows: renderWindows, export: renderExport,
     })[S.tool]();
   }
   desk.scrollTop = keepScroll;
@@ -2623,17 +2472,22 @@ function renderEmptyDoc() {
 /* =========================================================
  * עמודים (סידור/סיבוב/מחיקה) ומיזוג
  * ======================================================= */
-function pageGrid() {
-  const desk = $('#desk');
-  desk.append(deskBar());
-  const grid = h('<div class="grid" role="listbox" aria-multiselectable="true" aria-label="עמודים"></div>');
-  grid.style.setProperty('--thumb-w', S.thumbW + 'px');
-  S.pages.forEach((p, i) => grid.append(sheetEl(p, i)));
-  desk.append(grid);
-  wireReorder(grid);
+/* =========================================================
+ * עמודים: מסך אחד לסידור, להוספה (מיזוג) ולפיצול.
+ * גוררים עמודים כדי לשנות סדר; בין כל שני עמודים (במעבר עכבר) — + להוספת קובץ או עמודים
+ * באותו מקום, ומספריים לפיצול שם. בסוף העמודים — + קבוע.
+ * ======================================================= */
+function splitGroups() {
+  const n = S.pages.length;
+  const groups = [[]];
+  S.pages.forEach((p, i) => {
+    groups[groups.length - 1].push(i);
+    if (S.split.cuts.has(p.key) && i < n - 1) groups.push([]);
+  });
+  return groups;
 }
 
-function renderArrange() {
+function renderPages() {
   const panel = $('#panel');
   const sel = S.selected.size;
   const pg = h(`
@@ -2646,50 +2500,236 @@ function renderArrange() {
         <button class="tool" data-a="dup" ${sel ? '' : 'disabled'}>${icon('dup')}שכפול</button>
         <button class="tool tool-danger" data-a="del" ${sel ? '' : 'disabled'}>${icon('trash')}מחיקה</button>
         <button class="tool" data-a="extract" ${sel ? '' : 'disabled'}>${icon('extract')}שמירת הנבחרים כקובץ</button>
-        <button class="tool" data-a="blank">${icon('pagePlus')}עמוד ריק</button>
       </div>
     </div>`);
   pg.querySelector('[data-a=rotR]').onclick = () => rotateSelected(90);
   pg.querySelector('[data-a=rotL]').onclick = () => rotateSelected(-90);
   pg.querySelector('[data-a=del]').onclick = deleteSelected;
-  pg.querySelector('[data-a=blank]').onclick = addBlank;
   pg.querySelector('[data-a=dup]').onclick = duplicateSelected;
   pg.querySelector('[data-a=extract]').onclick = () => saveAs({ onlySelected: true });
-  panel.append(pg);
-  pageGrid();
+  panel.append(pg, splitPanel());
+  if (S.sources.size > 1) panel.append(filesGroup());
+  pagesBoard();
 }
 
-function renderPages() {
+/** הפיצול: כמה קבצים ייווצרו, שמירה, וקיצורי דרך לחיתוך */
+function splitPanel() {
+  const n = S.pages.length;
+  const groups = splitGroups();
+  const parts = groups.length;
+  const base = baseName(defaultName());
+  const g = h(`
+    <div class="group">
+      <h2>פיצול</h2>
+      <p class="hint"></p>
+      <button class="btn btn-primary btn-block" data-a="go" ${parts > 1 ? '' : 'disabled'}>${icon('scissors')}פיצול ושמירה לתיקייה</button>
+      <div class="split-quick">
+        <button class="btn btn-quiet" data-a="each" ${n > 1 ? '' : 'disabled'}>כל עמוד לקובץ</button>
+        <span class="split-every"><button class="btn btn-quiet" data-a="every" ${n > 2 ? '' : 'disabled'}>כל</button><input class="input" type="number" min="1" max="${Math.max(1, n - 1)}" value="${S.split.every || 2}" aria-label="מספר עמודים בכל קובץ"><span>עמודים</span></span>
+        ${S.split.cuts.size ? '<button class="btn btn-quiet" data-a="clear">ביטול הפיצול</button>' : ''}
+      </div>
+    </div>`);
+  g.querySelector('.hint').innerHTML = parts > 1
+    ? `המסמך יתחלק ל-<b>${parts}</b> קבצים, בשמות כמו <bdi>${esc(base)} - חלק 1</bdi>. כל חלק מסומן בצבע משלו.`
+    : 'מעבירים את העכבר בין שני עמודים ולוחצים על המספריים כדי לפצל שם.';
+  const setCuts = (every) => {
+    S.split.cuts = new Set(S.pages.filter((p, i) => i < n - 1 && (i + 1) % every === 0).map((p) => p.key));
+    render();
+  };
+  const num = g.querySelector('.split-every input');
+  g.querySelector('[data-a=go]').onclick = () => doSplit(splitGroups());
+  g.querySelector('[data-a=each]').onclick = () => setCuts(1);
+  g.querySelector('[data-a=every]').onclick = () => { S.split.every = Math.max(1, +num.value || 2); setCuts(S.split.every); };
+  num.onchange = () => { S.split.every = Math.max(1, +num.value || 2); };
+  const clear = g.querySelector('[data-a=clear]');
+  if (clear) clear.onclick = () => { S.split.cuts = new Set(); render(); };
+  return g;
+}
+
+function pagesBoard() {
+  const desk = $('#desk');
+  desk.append(deskBar());
+  const board = h('<div class="board" role="listbox" aria-multiselectable="true" aria-label="עמודים"></div>');
+  board.style.setProperty('--thumb-w', S.thumbW + 'px');
+  const groups = splitGroups();
+  const partOf = new Map();
+  groups.forEach((grp, k) => grp.forEach((i) => partOf.set(i, k)));
+  S.pages.forEach((p, i) => {
+    const s = sheetEl(p, i);
+    if (groups.length > 1) {
+      const k = partOf.get(i);
+      s.classList.add('in-part');
+      s.style.setProperty('--part', FILE_COLORS[k % FILE_COLORS.length]);
+      s.querySelector('.sheet-meta').append(h(`<span class="sheet-part">חלק ${k + 1}</span>`));
+    }
+    board.append(s);
+    if (i < S.pages.length - 1) board.append(gapEl(p, i));
+  });
+  const tile = h(`<button class="add-tile" title="הוספת קובץ, תמונות או עמוד ריק בסוף">${icon('plus')}<span>הוספה</span></button>`);
+  tile.style.setProperty('--thumb-w', S.thumbW + 'px');
+  tile.onclick = () => addMenu(tile, S.pages.length);
+  board.append(tile);
+  desk.append(board);
+  wireReorder(board);
+}
+
+/** הרווח בין שני עמודים: + (הוספה כאן) ומספריים (פיצול כאן) — מופיעים במעבר עכבר; פיצול פעיל נשאר מסומן */
+function gapEl(p, i) {
+  const on = S.split.cuts.has(p.key);
+  const g = h(`
+    <div class="gap ${on ? 'cut-on' : ''}">
+      <button class="gap-btn add" title="הוספת קובץ או עמודים כאן" aria-label="הוספה אחרי עמוד ${i + 1}">${icon('plus')}</button>
+      <button class="gap-btn cut" title="${on ? 'ביטול הפיצול כאן' : 'פיצול כאן'}" aria-label="${on ? 'ביטול הפיצול' : 'פיצול'} אחרי עמוד ${i + 1}" aria-pressed="${on}">${icon('scissors')}</button>
+    </div>`);
+  g.querySelector('.add').onclick = (e) => addMenu(e.currentTarget, i + 1);
+  g.querySelector('.cut').onclick = () => { on ? S.split.cuts.delete(p.key) : S.split.cuts.add(p.key); render(); };
+  return g;
+}
+
+/** מה להוסיף במקום מסוים: קובץ, תמונות, עמוד ריק, או לשונית פתוחה אחרת */
+function addMenu(anchor, at) {
+  const others = [...docs.values()].filter((d) => d.id !== activeId && d.pages.length);
+  popMenu(anchor, [
+    { label: 'קובץ PDF…', icon: 'doc', run: () => addFilesToDoc(at) },
+    { label: 'תמונות…', icon: 'image', run: () => addImages(at) },
+    { label: 'עמוד ריק', icon: 'pagePlus', run: () => addBlank(at) },
+    ...(others.length ? [{ sep: true }, ...others.map((o) => ({ label: `מהלשונית "${o.title}"`, sub: plural(o.pages.length, 'עמוד אחד', 'עמודים'), icon: 'merge', run: () => mergeTabInto(o.id, at) }))] : []),
+  ]);
+}
+
+/** תפריט קטן שנפתח ליד כפתור. נסגר בלחיצה מחוץ לו או ב-Esc */
+let popClose = null;
+function popMenu(anchor, items) {
+  if (popClose) popClose();
+  const m = h('<div class="pop-menu" role="menu"></div>');
+  for (const it of items) {
+    if (it.sep) { m.append(h('<div class="pop-sep" role="separator"></div>')); continue; }
+    const b = h(`<button role="menuitem">${it.icon ? icon(it.icon) : ''}<span class="pm-label">${esc(it.label)}</span>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</button>`);
+    b.onclick = () => { close(); it.run(); };
+    m.append(b);
+  }
+  document.body.append(m);
+  const r = anchor.getBoundingClientRect();
+  const w = m.offsetWidth, hgt = m.offsetHeight;
+  let left = r.left + r.width / 2 - w / 2;
+  left = Math.max(8, Math.min(window.innerWidth - w - 8, left));
+  let top = r.bottom + 6;
+  if (top + hgt > window.innerHeight - 8) top = Math.max(8, r.top - hgt - 6);
+  m.style.left = left + 'px';
+  m.style.top = top + 'px';
+  const outside = (e) => { if (!m.contains(e.target)) close(); };
+  const key = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  function close() {
+    m.remove();
+    document.removeEventListener('pointerdown', outside, true);
+    document.removeEventListener('keydown', key, true);
+    if (popClose === close) popClose = null;
+  }
+  setTimeout(() => {
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', key, true);
+  });
+  popClose = close;
+  const first = m.querySelector('button');
+  if (first) first.focus();
+}
+
+/* =========================================================
+ * דחיסה והמרה — לשונית משלהן
+ * ======================================================= */
+function renderExport() {
   const panel = $('#panel');
-  const seg = h('<div class="segmented pages-modes" role="tablist" aria-label="פעולות על עמודים"></div>');
-  for (const m of PAGES_MODES) {
-    const b = h(`<button role="tab" aria-pressed="${S.pagesMode === m.id}" aria-selected="${S.pagesMode === m.id}">${m.label}</button>`);
-    b.onclick = () => { if (S.pagesMode !== m.id) { S.pagesMode = m.id; S.selected.clear(); $('#desk').scrollTop = 0; render(); } };
+  const seg = h('<div class="segmented" role="tablist" aria-label="דחיסה והמרה"></div>');
+  for (const m of EXPORT_MODES) {
+    const b = h(`<button role="tab" aria-pressed="${S.exportMode === m.id}" aria-selected="${S.exportMode === m.id}">${m.label}</button>`);
+    b.onclick = () => { if (S.exportMode !== m.id) { S.exportMode = m.id; $('#desk').scrollTop = 0; render(); } };
     seg.append(b);
   }
   panel.append(seg);
-  ({ arrange: renderArrange, merge: renderMerge, split: renderSplit, extras: renderExtras, compress: renderCompress, convert: renderConvert })[S.pagesMode]();
+  (S.exportMode === 'convert' ? renderConvert : renderCompress)();
 }
 
-function renderMerge() {
-  const panel = $('#panel');
-  panel.append(filesGroup());
-  const others = [...docs.values()].filter((d) => d.id !== activeId && d.pages.length);
-  if (others.length) {
-    const g = h('<div class="group"><h2>מיזוג לשונית פתוחה</h2><p class="hint">העמודים שלה יתווספו לסוף המסמך הזה.</p><div class="merge-list"></div></div>');
-    const list = g.querySelector('.merge-list');
-    for (const o of others) {
-      const b = h(`<button class="merge-item">${icon('plus')}<span>${esc(o.title)}</span><small>${plural(o.pages.length, 'עמוד אחד', 'עמודים')}</small></button>`);
-      b.onclick = () => mergeTabInto(o.id);
-      list.append(b);
-    }
-    panel.append(g);
-  }
-  panel.append(h(`
+/* =========================================================
+ * סימן מים ומספרי עמודים — ב"טקסט וחתימה". מוחלים על הקובץ בשמירה,
+ * ומוצגים על העמודים עצמם כבר עכשיו (שכבה שקופה מעל כל עמוד)
+ * ======================================================= */
+function extrasGroup() {
+  const wm = S.extras.watermark;
+  const pn = S.extras.pageNumbers;
+  const g = h(`
     <div class="group">
-      <p class="hint">הלשונית הצבעונית מעל כל עמוד מראה מאיזה קובץ הגיע. גוררים עמודים לסדר הרצוי ושומרים.</p>
-    </div>`));
-  pageGrid();
+      <h2>על כל העמודים</h2>
+      <label class="check"><input type="checkbox" data-k="wm" ${wm.enabled ? 'checked' : ''}><span><b style="font-weight:600">סימן מים</b><small>טקסט שקוף באלכסון על כל עמוד</small></span></label>
+      <div data-box="wm" ${wm.enabled ? '' : 'hidden'} class="extras-box">
+        <label class="field"><span>טקסט</span><input class="input" dir="auto" data-f="text" value="${esc(wm.text)}"></label>
+        <div class="row2">
+          <label class="field"><span>גודל</span><input class="input" type="number" min="12" max="200" data-f="size" value="${wm.size}"></label>
+          <label class="field"><span>שקיפות</span><select class="select input" data-f="opacity">
+            ${[[0.08, 'עדינה מאוד'], [0.16, 'עדינה'], [0.3, 'בינונית'], [0.5, 'בולטת']].map(([v, l]) => `<option value="${v}" ${wm.opacity === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select></label>
+        </div>
+        <div class="swatches" role="group" aria-label="צבע">${[['#C23A2E', 'אדום'], ['#1F35B5', 'כחול'], ['#5D6B72', 'אפור']].map(([c, n]) => `<button class="swatch" data-color="${c}" style="background:${c}" title="${n}" aria-label="${n}" aria-pressed="${wm.color === c}"></button>`).join('')}</div>
+      </div>
+      <label class="check"><input type="checkbox" data-k="pn" ${pn.enabled ? 'checked' : ''}><span><b style="font-weight:600">מספרי עמודים</b><small>בתחתית או בראש כל עמוד</small></span></label>
+      <div data-box="pn" ${pn.enabled ? '' : 'hidden'} class="extras-box">
+        <label class="field"><span>נוסח</span><select class="select input" data-p="format">
+          ${['עמוד {n} מתוך {total}', 'עמוד {n}', '{n}', '- {n} -', '{n}/{total}'].map((f) => `<option value="${esc(f)}" ${pn.format === f ? 'selected' : ''}>${esc(f.replace('{n}', '3').replace('{total}', '12'))}</option>`).join('')}
+        </select></label>
+        <label class="field"><span>מיקום</span><select class="select input" data-p="position">
+          ${[['bottom-center', 'למטה באמצע'], ['bottom-right', 'למטה מימין'], ['bottom-left', 'למטה משמאל'], ['top-center', 'למעלה באמצע'], ['top-right', 'למעלה מימין'], ['top-left', 'למעלה משמאל']].map(([v, l]) => `<option value="${v}" ${pn.position === v ? 'selected' : ''}>${l}</option>`).join('')}
+        </select></label>
+        <label class="check"><input type="checkbox" data-p="skipFirst" ${pn.skipFirst ? 'checked' : ''}><span>בלי מספר בעמוד הראשון (שער)</span></label>
+      </div>
+    </div>`);
+  const changed = () => { markDirty(); refreshExtras(); };
+  g.querySelector('[data-k=wm]').onchange = (e) => { wm.enabled = e.target.checked; g.querySelector('[data-box=wm]').hidden = !wm.enabled; if (wm.enabled && !wm.text) wm.text = 'טיוטה'; changed(); };
+  g.querySelectorAll('[data-f]').forEach((inp) => (inp.oninput = () => { const k = inp.dataset.f; wm[k] = k === 'text' ? inp.value : +inp.value; changed(); }));
+  g.querySelectorAll('[data-color]').forEach((b) => (b.onclick = () => { wm.color = b.dataset.color; g.querySelectorAll('[data-color]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); changed(); }));
+  g.querySelector('[data-k=pn]').onchange = (e) => { pn.enabled = e.target.checked; g.querySelector('[data-box=pn]').hidden = !pn.enabled; changed(); };
+  g.querySelectorAll('[data-p]').forEach((inp) => (inp.onchange = () => { const k = inp.dataset.p; pn[k] = inp.type === 'checkbox' ? inp.checked : inp.value; changed(); }));
+  return g;
+}
+
+/** סימן המים ומספר העמוד על עמוד בתצוגה — כמו שייכתבו לקובץ (ops.js: applyWatermark / applyPageNumbers) */
+function drawExtras(ctx) {
+  const { frame, p } = ctx;
+  let layer = frame.querySelector('.extras-layer');
+  if (!layer) {
+    layer = h('<div class="extras-layer" aria-hidden="true"></div>');
+    frame.insertBefore(layer, frame.querySelector('.overlay'));
+  }
+  layer.innerHTML = '';
+  const sc = ctx.scale;
+  const wm = S.extras.watermark;
+  if (wm.enabled && wm.text) {
+    const el = h(`<div class="wm-prev" dir="auto"></div>`);
+    el.textContent = wm.text;
+    el.style.fontSize = (wm.size || 60) * sc + 'px';
+    el.style.color = wm.color || '#C23A2E';
+    el.style.opacity = wm.opacity == null ? 0.18 : wm.opacity;
+    el.style.transform = `translate(-50%, -50%) rotate(${-(wm.angle == null ? 35 : wm.angle)}deg)`;
+    layer.append(el);
+  }
+  const pn = S.extras.pageNumbers;
+  const i = S.pages.indexOf(p);
+  if (pn.enabled && i >= 0 && !(pn.skipFirst && i === 0)) {
+    const total = S.pages.length;
+    const el = h('<div class="pn-prev" dir="rtl"></div>');
+    el.textContent = (pn.format || 'עמוד {n} מתוך {total}').replace('{n}', String(i + 1)).replace('{total}', String(total));
+    const size = (pn.size || 11) * sc, margin = 24 * sc;
+    const pos = pn.position || 'bottom-center';
+    el.style.fontSize = size + 'px';
+    el.style.color = pn.color || '#444444';
+    el.style.left = margin + 'px';
+    el.style.right = margin + 'px';
+    el.style.textAlign = pos.endsWith('right') ? 'right' : pos.endsWith('left') ? 'left' : 'center';
+    if (pos.startsWith('top')) el.style.top = margin - size * 0.95 + 'px';
+    else el.style.bottom = margin - size * 0.3 + 'px';
+    layer.append(el);
+  }
+}
+function refreshExtras() {
+  document.querySelectorAll('.page-frame').forEach((f) => { if (f.__ctx) drawExtras(f.__ctx); });
 }
 
 /* =========================================================
@@ -2948,7 +2988,7 @@ function signaturesGroup() {
 
 function renderSign() {
   const panel = $('#panel');
-  panel.append(signTools(), signaturesGroup());
+  panel.append(signTools(), signaturesGroup(), extrasGroup());
   pageColumn();
 }
 

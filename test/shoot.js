@@ -39,6 +39,12 @@ app.whenReady().then(async () => {
       else s.click = [Math.round(r[0] + r[2] * ((s.at || [0.5, 0.5])[0])), Math.round(r[1] + r[3] * ((s.at || [0.5, 0.5])[1]))];
       await wait(200);
     }
+    if (s.hoverSel) {
+      // הזזת העכבר מעל אלמנט (בלי לחיצה): { hoverSel: '.x', nth: 0 }
+      const r = await js(`(() => { const el = document.querySelectorAll(${JSON.stringify(s.hoverSel)})[${s.nth || 0}]; if (!el) return null; const b = el.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })()`);
+      if (!r) errors.push('hoverSel not found: ' + s.hoverSel);
+      else { win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(r[0]), y: Math.round(r[1]) }); await wait(300); }
+    }
     if (s.click) {
       const [x, y] = s.click;
       win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
