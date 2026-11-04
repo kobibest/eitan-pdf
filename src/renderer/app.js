@@ -92,8 +92,9 @@ const TOOLS = [
   // לפי סדר העבודה: המסמך כולו (צפייה, עמודים) → התוכן (עריכה, הוספה, טפסים) → יציאה (דחיסה והמרה, ואבטחה אחרונה)
   { id: 'view', label: 'צפייה', icon: 'eye', doc: true, panel: false },
   { id: 'pages', label: 'עמודים', icon: 'grid', doc: true },
-  { id: 'edit', label: 'עריכת טקסט', icon: 'textEdit', doc: true },
-  { id: 'sign', label: 'טקסט וחתימה', icon: 'sign', doc: true },
+  // "מילוי ועריכה": שתי לשוניות בתוך הכלי — טקסט וחתימה (הוספה לעמוד) ועריכת הטקסט הקיים
+  { id: 'sign', label: 'מילוי ועריכה', icon: 'sign', doc: true, group: ['sign', 'edit'] },
+  { id: 'edit', label: 'עריכת טקסט', icon: 'textEdit', doc: true, hidden: true },
   { id: 'forms', label: 'טפסים', icon: 'form', doc: true },
   { id: 'export', label: 'דחיסה והמרה', icon: 'export', doc: true },
   { id: 'security', label: 'אבטחה', icon: 'lock', doc: true },
@@ -1354,6 +1355,7 @@ function refreshEditPanel() {
   const panel = $('#panel');
   const keep = panel.scrollTop;
   panel.innerHTML = '';
+  panel.append(fillTabs());
   editPanel(panel);
   panel.scrollTop = keep;
   updateChrome();
@@ -1446,7 +1448,19 @@ function editPanel(panel) {
     </div>`));
 }
 
+/** הלשוניות שבתוך "מילוי ועריכה" */
+function fillTabs() {
+  const seg = h('<div class="segmented" role="tablist" aria-label="מילוי ועריכה"></div>');
+  for (const [id, label] of [['sign', 'טקסט וחתימה'], ['edit', 'עריכת טקסט']]) {
+    const b = h(`<button role="tab" aria-pressed="${S.tool === id}" aria-selected="${S.tool === id}">${label}</button>`);
+    b.onclick = () => { if (S.tool !== id) setView(id); };
+    seg.append(b);
+  }
+  return seg;
+}
+
 function renderEdit() {
+  $('#panel').append(fillTabs());
   editPanel($('#panel'));
   pageColumn();
 }
@@ -2418,9 +2432,12 @@ function renderRail() {
   const top = h('<div class="rail-group"></div>');
   const bottom = h('<div class="rail-group rail-bottom"></div>');
   for (const t of TOOLS) {
+    if (t.hidden) continue;
     const disabled = t.doc && (!d || !d.pages.length);
-    const b = h(`<button class="rail-btn" aria-pressed="${S.tool === t.id}" ${disabled ? 'disabled' : ''}>${icon(t.icon)}<span>${esc(t.label)}</span></button>`);
-    b.onclick = () => setView(t.id);
+    const on = S.tool === t.id || (t.group && t.group.includes(S.tool));
+    const b = h(`<button class="rail-btn" aria-pressed="${on}" ${disabled ? 'disabled' : ''}>${icon(t.icon)}<span>${esc(t.label)}</span></button>`);
+    // לחיצה על כלי שכבר פעיל (גם בלשונית הפנימית השנייה) — נשארים איפה שהיינו
+    b.onclick = () => { if (!on) setView(t.id); };
     (t.bottom ? bottom : top).append(b);
   }
   rail.append(top, bottom);
@@ -2980,7 +2997,7 @@ function signaturesGroup() {
 
 function renderSign() {
   const panel = $('#panel');
-  panel.append(signTools(), signaturesGroup(), extrasGroup());
+  panel.append(fillTabs(), signTools(), signaturesGroup(), extrasGroup());
   pageColumn();
 }
 
