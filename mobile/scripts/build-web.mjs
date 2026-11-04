@@ -35,7 +35,7 @@ function copy(from, to) {
 fs.cpSync(path.join(MOBILE, 'web'), WWW, { recursive: true });
 
 // המנוע המשותף — כמו ש-src/renderer/index.html טוען אותו בדסקטופ
-for (const f of ['hebrew.js', 'textedit.js', 'ops.js', 'redact.js']) copy(`src/core/${f}`, `core/${f}`);
+for (const f of ['hebrew.js', 'textedit.js', 'ops.js', 'redact.js', 'compress.js']) copy(`src/core/${f}`, `core/${f}`);
 
 // חתימה דיגיטלית: src/core/digisig.js נארז כמו שהוא לקובץ אחד שרץ ב-WebView (window.DigiSig).
 // pdf-lib ו-ops.js לא נארזים שוב — משתמשים באותם עותקים שכבר נטענים בדף (window.PDFLib, window.PdfOps).

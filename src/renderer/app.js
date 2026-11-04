@@ -152,17 +152,20 @@ const S = {
   fonts: null,
   pendingImage: null,
   mark: { shape: 'check', color: '#1B2430' }, // הסימון האחרון שנבחר — הסימון הבא יהיה כמוהו
-  pagesMode: 'arrange', // בתוך "עמודים": סידור / מיזוג / פיצול / סימן מים ומספור
+  pagesMode: 'arrange', // בתוך "עמודים": סידור / מיזוג / פיצול / סימן מים ומספור / דחיסה
+  compressLevel: ['light', 'medium', 'strong'].includes(localStore('compressLevel')) ? localStore('compressLevel') : 'medium',
+  compressResult: null, // { docId, level, before, after } — תוצאת הדחיסה האחרונה, להצגה בלוח
 };
 const PAGES_MODES = [
   { id: 'arrange', label: 'סידור' },
   { id: 'merge', label: 'מיזוג' },
   { id: 'split', label: 'פיצול' },
   { id: 'extras', label: 'סימן מים' },
+  { id: 'compress', label: 'דחיסה' },
 ];
 /** כלים ישנים (מיזוג/פיצול/סימון) הם עכשיו מצבים בתוך "עמודים" */
 function normalizeTool(t) {
-  if (t === 'merge' || t === 'split' || t === 'extras') { S.pagesMode = t; return 'pages'; }
+  if (t === 'merge' || t === 'split' || t === 'extras' || t === 'compress') { S.pagesMode = t; return 'pages'; }
   if (t === 'folder') return 'view'; // כלי שהוסר
   return t;
 }
@@ -1695,6 +1698,75 @@ function renderExtras() {
   renderPreview(preview);
 }
 
+/* =========================================================
+ * דחיסה — המנוע המשותף לדסקטופ ולאנדרואיד נמצא ב-src/core/compress.js
+ * ======================================================= */
+const COMPRESS_LEVELS = [
+  { id: 'light', title: 'קלה, בלי איבוד איכות', sub: 'מנקה כפילויות ושאריות. מתאים כשהאיכות חשובה' },
+  { id: 'medium', title: 'מומלצת', sub: 'תמונות ב-150 DPI. נראה טוב במסך ובהדפסה' },
+  { id: 'strong', title: 'חזקה', sub: 'תמונות ב-96 DPI. הכי קטן, למייל ולוואטסאפ' },
+];
+
+function renderCompress() {
+  const panel = $('#panel');
+  const desk = $('#desk');
+  const d = D();
+  const srcSize = [...S.sources.values()].reduce((n, s) => n + (s.bytes ? s.bytes.length : 0), 0);
+  const g = h(`
+    <div class="group">
+      <h2>רמת הדחיסה</h2>
+      <div class="radio-list" role="radiogroup">
+        ${COMPRESS_LEVELS.map((l) => `<label><input type="radio" name="cl" value="${l.id}" ${S.compressLevel === l.id ? 'checked' : ''}><span><b>${l.title}</b><small>${l.sub}</small></span></label>`).join('')}
+      </div>
+      <p class="hint">הטקסט נשאר טקסט: אפשר לחפש ולהעתיק כרגיל. רק התמונות והסריקות שבקובץ מוקטנות.</p>
+    </div>`);
+  g.querySelectorAll('input[name=cl]').forEach((r) => (r.onchange = () => { S.compressLevel = r.value; localStore('compressLevel', r.value); S.compressResult = null; render(); }));
+  panel.append(g);
+
+  const res = S.compressResult && S.compressResult.docId === d.id && S.compressResult.level === S.compressLevel ? S.compressResult : null;
+  const fmt = window.Compress.formatSize;
+  const out = h(`<div class="group"><h2>התוצאה</h2><p class="hint"></p><button class="btn btn-primary btn-block btn-lg">${icon('save')}דחיסה ושמירה כקובץ חדש</button></div>`);
+  const hint = out.querySelector('.hint');
+  if (res && res.unchanged) hint.innerHTML = `הקובץ כבר דחוס היטב (<bdi>${fmt(res.before)}</bdi>), ולא נמצא מה להקטין ברמה הזו.`;
+  else if (res) hint.innerHTML = `<b><bdi>${fmt(res.before)}</bdi> ← <bdi>${fmt(res.after)}</bdi></b> (קטן ב-${Math.round((1 - res.after / res.before) * 100)}%). נשמר בשם <bdi>${esc(res.name)}</bdi>.`;
+  else hint.innerHTML = `גודל הקובץ עכשיו: בערך <bdi>${fmt(srcSize)}</bdi>. הקובץ הדחוס יישמר בנפרד, בשם כמו <bdi>${esc(baseName(defaultName()))} - דחוס.pdf</bdi>, והמקור לא ישתנה.`;
+  out.querySelector('button').onclick = () => doCompress();
+  panel.append(out);
+
+  desk.append(deskBar());
+  const grid = h('<div class="grid"></div>');
+  grid.style.setProperty('--thumb-w', S.thumbW + 'px');
+  S.pages.forEach((p, i) => grid.append(sheetEl(p, i, { static: true })));
+  desk.append(grid);
+}
+
+async function doCompress() {
+  const d = D();
+  if (!d || !S.pages.length) return;
+  const problem = securityProblem();
+  if (problem) return toast(problem, { error: true });
+  if (!(await confirmBreakSignatures())) return;
+  const level = S.compressLevel;
+  try {
+    const r = await busy('דוחס את הקובץ…', async () => {
+      const built = await buildBytes(S.pages);
+      const c = await window.Compress.compress(built, { level });
+      return { ...c, bytes: await applySecurity(c.bytes) };
+    });
+    const name = `${baseName(defaultName())} - דחוס.pdf`;
+    S.compressResult = { docId: d.id, level, before: r.before, after: r.after, unchanged: r.unchanged, name };
+    if (r.unchanged) { render(); return toast('הקובץ כבר דחוס היטב, לא נמצא מה להקטין.'); }
+    const path = await api.saveAs(name, r.bytes, d.path);
+    if (!path) { S.compressResult = null; render(); return; }
+    S.compressResult.name = path.split(/[\\/]/).pop();
+    render();
+    toast(`נשמר: \u2068${window.Compress.formatSize(r.before)}\u2069 ← \u2068${window.Compress.formatSize(r.after)}\u2069`, { action: { label: 'פתיחה בתיקייה', run: () => api.showInFolder(path) } });
+  } catch (e) {
+    console.error(e);
+    toast('הדחיסה נכשלה: ' + e.message, { error: true });
+  }
+}
+
 let previewToken = 0;
 
 async function renderPreview(wrap) {
@@ -2240,7 +2312,7 @@ function renderPages() {
     seg.append(b);
   }
   panel.append(seg);
-  ({ arrange: renderArrange, merge: renderMerge, split: renderSplit, extras: renderExtras })[S.pagesMode]();
+  ({ arrange: renderArrange, merge: renderMerge, split: renderSplit, extras: renderExtras, compress: renderCompress })[S.pagesMode]();
 }
 
 function renderMerge() {
@@ -3072,6 +3144,7 @@ function wire() {
     if (cmd === 'open') openDialog();
     else if (cmd === 'save') saveDocument();
     else if (cmd === 'save-as') saveAs();
+    else if (cmd === 'compress') { if (D() && S.pages.length) activate(activeId, 'compress'); }
     else if (cmd === 'close-tab') { if (activeId) closeTab(activeId); }
     else if (cmd === 'undo') { if (!isTyping()) undo(); else document.execCommand('undo'); }
     else if (cmd === 'redo') { if (!isTyping()) redo(); else document.execCommand('redo'); }

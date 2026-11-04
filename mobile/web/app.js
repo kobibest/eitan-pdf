@@ -225,6 +225,7 @@ async function saveMenu() {
     { id: 'over', label: 'שמירה בקובץ המקורי', sub: canOver ? D.origin.name : 'לא זמין לקובץ הזה', icon: ICON.save, disabled: !canOver },
     { id: 'as', label: 'שמירה בשם…', sub: 'בוחרים תיקייה ושם לקובץ חדש', icon: ICON.saveAs },
     { id: 'share', label: 'שיתוף', sub: 'וואטסאפ, מייל ועוד', icon: ICON.share },
+    { id: 'compress', label: 'קובץ דחוס…', sub: 'עותק קטן יותר לשליחה', icon: TOOL_ICON.zip },
   ], {
     title: 'שמירה',
     note: fromApp ? 'הקובץ הגיע מאפליקציה שלא מאפשרת לשנות אותו (למשל וואטסאפ או ג׳ימייל). אפשר לשמור עותק בשם, או לשתף.' : '',
@@ -232,6 +233,7 @@ async function saveMenu() {
   if (choice === 'over') return saveOver();
   if (choice === 'as') return saveAsNew();
   if (choice === 'share') { await shareDoc(); return false; }
+  if (choice === 'compress') { await compressDoc(); return false; }
   return false;
 }
 
@@ -652,6 +654,7 @@ const TOOL_ICON = {
   img: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/></svg>',
   cam: '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   cert: '<svg viewBox="0 0 24 24"><path d="M5 3h10l4 4v8"/><path d="M5 3v18h7"/><circle cx="17" cy="17" r="3"/><path d="M15.5 19.5L15 23l2-1 2 1-.5-3.5"/></svg>',
+  zip: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M12.5 9v3.5M10 10.5l2.5 2.5 2.5-2.5M12.5 19v-3.5M10 17.5l2.5-2.5 2.5 2.5"/></svg>',
 };
 
 async function toolsSheet() {
@@ -667,6 +670,7 @@ async function toolsSheet() {
         ${card('pn', TOOL_ICON.pn, 'מספרי עמודים', ex.pageNumbers.enabled ? '<span class="on">פעיל</span>' : 'בתחתית או בראש כל עמוד')}
         ${card('digital', TOOL_ICON.cert, 'חתימה דיגיטלית', 'עם תעודה (‎.pfx) — מוכיחה מי חתם')}
         ${card('redact', TOOL_ICON.redact, 'השחרה', 'מוחקת לצמיתות את מה שמתחת')}
+        ${card('compress', TOOL_ICON.zip, 'דחיסת הקובץ', 'קובץ קטן יותר, למייל ולוואטסאפ')}
         ${card('img', TOOL_ICON.img, 'תמונות מהגלריה', 'כעמודים בסוף המסמך')}
         ${card('cam', TOOL_ICON.cam, 'צילום עמוד', 'במצלמה, כעמוד בסוף המסמך')}
       </div>`, { onClose: () => { if (!done) resolve(null); } });
@@ -676,6 +680,7 @@ async function toolsSheet() {
   else if (choice === 'pn') pageNumbersSheet();
   else if (choice === 'digital') digitalSheet();
   else if (choice === 'redact') addRedaction();
+  else if (choice === 'compress') compressDoc();
   else if (choice === 'img') addImages('gallery');
   else if (choice === 'cam') addImages('camera');
 }
@@ -759,6 +764,36 @@ function pageNumbersSheet() {
   w.querySelectorAll('input, select').forEach((el) => el.addEventListener('change', apply));
   w.querySelector('[data-ok]').addEventListener('click', () => s.close());
   apply();
+}
+
+/** דחיסה — אותו מנוע כמו בדסקטופ (src/core/compress.js). יוצר עותק, המסמך עצמו לא משתנה */
+async function compressDoc() {
+  const D = S.doc;
+  if (!D || !D.pages.length) return;
+  const fmt = window.Compress.formatSize;
+  const level = await menu([
+    { id: 'medium', label: 'מומלצת', sub: 'תמונות ב-150 DPI, נראה טוב במסך ובהדפסה', icon: TOOL_ICON.zip },
+    { id: 'strong', label: 'חזקה', sub: 'תמונות ב-96 DPI, הכי קטן — למייל ולוואטסאפ', icon: TOOL_ICON.zip },
+    { id: 'light', label: 'קלה, בלי איבוד איכות', sub: 'מנקה כפילויות ושאריות בלבד', icon: TOOL_ICON.zip },
+  ], { title: 'דחיסת הקובץ', note: 'הטקסט נשאר טקסט, רק התמונות והסריקות מוקטנות. נוצר עותק חדש, המקור לא משתנה.' });
+  if (!level) return;
+  if (!(await confirmBreakSignatures())) return; // הקובץ נכתב מחדש — גם בלי שינויים
+  busy(true, 'דוחס…');
+  let r;
+  try {
+    const built = await buildBytes({ protect: false });
+    r = await window.Compress.compress(built, { level });
+    r.bytes = await D.protect(r.bytes);
+  } catch (err) {
+    console.error(err);
+    toast('הדחיסה נכשלה.', { error: true });
+    return;
+  } finally {
+    busy(false);
+  }
+  if (r.unchanged) { toast(`הקובץ כבר דחוס היטב (${iso(fmt(r.before))}), לא נמצא מה להקטין.`, { ms: 4500 }); return; }
+  const pct = Math.round((1 - r.after / r.before) * 100);
+  await deliverFiles([{ name: `${D.name} - דחוס.pdf`, bytes: r.bytes }], `${iso(fmt(r.before))} ← ${iso(fmt(r.after))} (קטן ב-${pct}%)`);
 }
 
 function addRedaction() {

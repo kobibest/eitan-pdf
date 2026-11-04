@@ -114,6 +114,7 @@ function createWindow() {
         { label: 'פתיחת קבצים…', accelerator: 'CmdOrCtrl+O', click: send('open') },
         { label: 'שמירה', accelerator: 'CmdOrCtrl+S', click: send('save') },
         { label: 'שמירה בשם…', accelerator: 'CmdOrCtrl+Shift+S', click: send('save-as') },
+        { label: 'דחיסת הקובץ…', click: send('compress') },
         { type: 'separator' },
         { label: 'סגירת לשונית', accelerator: 'CmdOrCtrl+W', click: send('close-tab') },
         { label: 'יציאה', role: isMac ? 'close' : 'quit' },

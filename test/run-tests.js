@@ -493,6 +493,91 @@ async function makeForm() {
     assert.deepStrictEqual(r.getPage(1).getSize(), { width: 595, height: 842 });
   });
 
+  await ok('דחיסה בלי איבוד: עותקים זהים מתאחדים ואובייקטים יתומים נמחקים', async () => {
+    const C = require('../src/core/compress.js');
+    const d = await PDFDocument.create();
+    const f = await d.embedFont(StandardFonts.Helvetica);
+    const png = fs.readFileSync(path.join(__dirname, 'fixtures/signature.png'));
+    for (let i = 0; i < 3; i++) {
+      const p = d.addPage([595, 842]);
+      p.drawText(`COMPRESS-${i + 1}`, { x: 50, y: 780, size: 20, font: f });
+      p.drawImage(await d.embedPng(png), { x: 50, y: 500, width: 200, height: 75 }); // אותה תמונה שלוש פעמים
+    }
+    d.context.register(d.context.flateStream(new Uint8Array(50000).fill(7))); // זבל שאף אחד לא מפנה אליו
+    const src = await d.save();
+    const countImages = async (b) => (await PDFDocument.load(b)).context.enumerateIndirectObjects()
+      .filter(([, o]) => o instanceof P.PDFRawStream && o.dict.lookup(P.PDFName.of('Subtype')) === P.PDFName.of('Image')).length;
+    assert.strictEqual(await countImages(src), 6); // 3 תמונות + 3 מסכות שקיפות
+    const r = await C.compress(src, { level: 'light' });
+    assert.ok(!r.unchanged && r.after < r.before, `${r.before} → ${r.after}`);
+    assert.strictEqual(await countImages(r.bytes), 2);
+    assert.ok(r.merged >= 4 && r.removed >= 1, JSON.stringify(r));
+    fs.writeFileSync(path.join(OUT, 'compressed-light.pdf'), r.bytes);
+    const out = await PDFDocument.load(r.bytes);
+    assert.strictEqual(out.getPageCount(), 3);
+    let txt = '';
+    for (const [, o] of out.context.enumerateIndirectObjects()) {
+      if (o instanceof P.PDFRawStream && !o.dict.has(P.PDFName.of('Subtype'))) { try { txt += Buffer.from(P.decodePDFRawStream(o).decode()).toString('latin1'); } catch (e) { /* */ } }
+    }
+    assert.ok(txt.includes(Buffer.from('COMPRESS-3').toString('hex').toUpperCase()), 'הטקסט נעלם');
+  });
+
+  await ok('דחיסת תמונות: פענוח Flate עם מנבא PNG, הקטנה לגודל העמוד, מסכה נשמרת', async () => {
+    const C = require('../src/core/compress.js');
+    const zlib = require('zlib');
+    const W = 2400, Hh = 8;
+    const pixels = Buffer.alloc(W * Hh * 3);
+    let seed = 12345;
+    for (let i = 0; i < pixels.length; i++) { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; pixels[i] = seed >>> 24; } // רעש — לא נדחס
+    // מנבא PNG: כל שורה עם סוג סינון אחר (0–4)
+    const rows = [];
+    for (let y = 0; y < Hh; y++) {
+      const type = y % 5;
+      const row = Buffer.alloc(W * 3 + 1);
+      row[0] = type;
+      for (let x = 0; x < W * 3; x++) {
+        const cur = pixels[y * W * 3 + x];
+        const a = x >= 3 ? pixels[y * W * 3 + x - 3] : 0;
+        const b = y ? pixels[(y - 1) * W * 3 + x] : 0;
+        const c = y && x >= 3 ? pixels[(y - 1) * W * 3 + x - 3] : 0;
+        const pr = a + b - c, pa = Math.abs(pr - a), pb = Math.abs(pr - b), pc = Math.abs(pr - c);
+        const pred = [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][type];
+        row[x + 1] = (cur - pred) & 0xff;
+      }
+      rows.push(row);
+    }
+    const d = await PDFDocument.create();
+    const page = d.addPage([595, 842]);
+    const ctx = d.context;
+    const smask = ctx.register(ctx.flateStream(new Uint8Array(W * Hh).fill(200), { Type: 'XObject', Subtype: 'Image', Width: W, Height: Hh, ColorSpace: 'DeviceGray', BitsPerComponent: 8 }));
+    const imgStream = ctx.stream(zlib.deflateSync(Buffer.concat(rows)), {
+      Type: 'XObject', Subtype: 'Image', Width: W, Height: Hh, ColorSpace: 'DeviceRGB', BitsPerComponent: 8,
+      Filter: 'FlateDecode', DecodeParms: { Predictor: 15, Colors: 3, Columns: W, BitsPerComponent: 8 }, SMask: smask,
+    });
+    const imgRef = ctx.register(imgStream);
+    page.node.setXObject(P.PDFName.of('Im1'), imgRef);
+    const src = await d.save();
+    const jpg = fs.readFileSync(path.join(__dirname, 'fixtures/redacted-page.jpg'));
+    assert.strictEqual(C._internal.jpegComponents(jpg), 3);
+    const calls = [];
+    const r = await C.compress(src, {
+      level: 'medium',
+      recode: async (s) => { calls.push(s); return new Uint8Array(jpg); },
+    });
+    assert.strictEqual(calls.length, 1, 'רק התמונה עצמה, לא המסכה');
+    assert.ok(Buffer.from(calls[0].pixels.subarray(0, W * Hh * 3)).equals(pixels), 'הפיקסלים פוענחו לא נכון');
+    assert.strictEqual(calls[0].targetWidth, Math.ceil((842 / 72) * 150)); // 150 DPI לפי הצלע הארוכה של העמוד
+    assert.strictEqual(r.recompressed, 1);
+    const out = await PDFDocument.load(r.bytes);
+    const im = out.context.lookup(out.getPage(0).node.Resources().lookup(P.PDFName.of('XObject')).get(P.PDFName.of('Im1')));
+    assert.strictEqual(im.dict.lookup(P.PDFName.of('Filter')), P.PDFName.of('DCTDecode'));
+    assert.ok(im.dict.get(P.PDFName.of('SMask')) instanceof P.PDFRef, 'המסכה הלכה לאיבוד');
+    assert.ok(Buffer.from(im.contents).equals(jpg));
+    // רמה קלה לא נוגעת בתמונות
+    const light = await C.compress(src, { level: 'light', recode: async () => { throw new Error('לא אמור להיקרא'); } });
+    assert.strictEqual(light.recompressed, 0);
+  });
+
   await ok('המנוע נטען במצב דפדפן (כמו ב-WebView של אנדרואיד) וכותב עברית', async () => {
     const out = await require('./browser-globals.js').run(fonts);
     fs.writeFileSync(path.join(OUT, 'browser-globals.pdf'), out);

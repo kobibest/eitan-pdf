@@ -17,6 +17,7 @@ const SCRIPTS = [
   'src/core/textedit.js',
   'src/core/ops.js',
   'src/core/redact.js',
+  'src/core/compress.js',
 ];
 
 async function run(fonts) {
@@ -28,7 +29,7 @@ async function run(fonts) {
   for (const rel of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(ROOT, rel), 'utf8'), ctx, { filename: rel });
 
   assert.strictEqual(vm.runInContext('typeof module', ctx), 'undefined');
-  for (const name of ['PDFLib', 'fontkit', 'HebrewPDF', 'TextEdit', 'PdfOps', 'Redact']) {
+  for (const name of ['PDFLib', 'fontkit', 'HebrewPDF', 'TextEdit', 'PdfOps', 'Redact', 'Compress']) {
     assert.ok(vm.runInContext(`typeof ${name}`, ctx) === 'object', `חסר ${name} במצב דפדפן`);
   }
   // מערכים נוצרים בתוך ההקשר — כמו בדפדפן אמיתי
