@@ -1881,22 +1881,32 @@ function bytesToDataUrl(bytes, mime) {
   });
 }
 
+/** פיצול: כל חלק נפתח כקובץ חדש בלשונית משלו (עדיין לא שמור). המסמך המקורי לא משתנה */
 async function doSplit(groups) {
-  const problem = securityProblem();
-  if (problem) return toast(problem, { error: true });
-  const folder = await api.chooseFolder('לאיזו תיקייה לשמור את החלקים?');
-  if (!folder) return;
+  const base = baseName(defaultName());
+  const src = D();
+  let opened = [];
   try {
-    const written = await busy('מפצל ושומר…', async () => {
+    await busy('מפצל…', async () => {
       const full = await buildBytes(S.pages);
-      const parts = await Promise.all((await Ops.splitDocument(full, groups)).map((b) => applySecurity(b)));
-      const base = baseName(defaultName());
-      return api.writeFiles(folder, parts.map((bytes, i) => ({ name: `${base} - חלק ${i + 1}.pdf`, bytes })));
+      const parts = await Ops.splitDocument(full, groups);
+      for (let i = 0; i < parts.length; i++) {
+        const name = `${base} - חלק ${i + 1}`;
+        const d = newDoc(name, null);
+        const ok = await addPdf({ name: name + '.pdf', bytes: parts[i] }, { doc: d, initial: true });
+        if (!ok) { docs.delete(d.id); continue; }
+        d.dirty = true;
+        opened.push(d);
+      }
     });
-    toast(`נשמרו ${written.length} קבצים`, { action: { label: 'הצגה בתיקייה', run: () => api.showInFolder(written[0]) } });
   } catch (e) {
-    toast('הפיצול נכשל: ' + e.message, { error: true });
+    for (const d of opened) docs.delete(d.id);
+    return toast('הפיצול נכשל: ' + e.message, { error: true });
   }
+  if (!opened.length) return render();
+  src.split.cuts = new Set();
+  activate(opened[0].id, 'view');
+  toast(`המסמך פוצל ל-${opened.length} קבצים, כל אחד בלשונית משלו. כדי לשמור — כפתור השמירה בכל לשונית.`);
 }
 
 /* =========================================================
@@ -2703,7 +2713,7 @@ function splitPanel() {
     <div class="group">
       <h2>פיצול</h2>
       <p class="hint"></p>
-      <button class="btn btn-primary btn-block" data-a="go" ${parts > 1 ? '' : 'disabled'}>${icon('scissors')}פיצול ושמירה לתיקייה</button>
+      <button class="btn btn-primary btn-block" data-a="go" ${parts > 1 ? '' : 'disabled'}>${icon('scissors')}פיצול לקבצים נפרדים</button>
       <div class="split-quick">
         <button class="btn btn-quiet" data-a="each" ${n > 1 ? '' : 'disabled'}>כל עמוד לקובץ</button>
         <span class="split-every"><button class="btn btn-quiet" data-a="every" ${n > 2 ? '' : 'disabled'}>כל</button><input class="input" type="number" min="1" max="${Math.max(1, n - 1)}" value="${S.split.every || 2}" aria-label="מספר עמודים בכל קובץ"><span>עמודים</span></span>
@@ -2711,7 +2721,7 @@ function splitPanel() {
       </div>
     </div>`);
   g.querySelector('.hint').innerHTML = parts > 1
-    ? `המסמך יתחלק ל-<b>${parts}</b> קבצים, בשמות כמו <bdi>${esc(base)} - חלק 1</bdi>. כל חלק מסומן בצבע משלו.`
+    ? `המסמך יתחלק ל-<b>${parts}</b> קבצים, וכל אחד ייפתח בלשונית משלו בשם כמו <bdi>${esc(base)} - חלק 1</bdi>. כל חלק מסומן בצבע משלו.`
     : 'מעבירים את העכבר בין שני עמודים ולוחצים על המספריים כדי לפצל שם.';
   const setCuts = (every) => {
     S.split.cuts = new Set(S.pages.filter((p, i) => i < n - 1 && (i + 1) % every === 0).map((p) => p.key));
