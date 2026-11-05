@@ -8,7 +8,8 @@
     "test": "node test/run-tests.js",
     "dist": "installer/build.sh x64",
     "dist:arm64": "installer/build.sh arm64",
-    "dist:mac": "installer/build-mac.sh"
+    "dist:mac": "installer/build-mac.sh",
+    "dist:store": "electron-builder --win appx --x64 --publish never"
   },
   "author": "Kobi Eitan <kobi@eitan-m.co.il>",
   "license": "MIT",
@@ -78,6 +79,17 @@
           ]
         }
       ]
+    },
+    "appx": {
+      "applicationId": "EitanPDF",
+      "displayName": "איתןPDF",
+      "languages": [
+        "he-IL"
+      ],
+      "backgroundColor": "transparent",
+      "showNameOnTiles": false,
+      "customExtensionsPath": "build/appx-file-associations.xml",
+      "artifactName": "EitanPDF-Store-${version}-${arch}.${ext}"
     },
     "mac": {
       "target": [

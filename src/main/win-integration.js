@@ -36,6 +36,14 @@ function dataDir() {
   return path.join(process.env.LOCALAPPDATA || app.getPath('appData'), 'EitanPDF');
 }
 
+/**
+ * גרסת Microsoft Store (חבילת MSIX): Windows מנהל את השילוב בעצמו לפי המניפסט —
+ * כתיבה ל-HKCU\Software\Classes מתוך חבילה לא מגיעה לסייר, ואין לה משמעות אחרי עדכון מהחנות.
+ */
+const isStore = () => !!process.windowsStore;
+const STORE_NOTE = 'בגרסה מחנות Microsoft, ‏Windows מנהל את השילוב בעצמו: איתןPDF מופיע ב"פתח באמצעות" של קובצי PDF. '
+  + 'כדי שכל PDF ייפתח בה: הגדרות Windows ← אפליקציות ← אפליקציות ברירת מחדל ← איתןPDF.';
+
 /** האם התוכנה מותקנת (Installer) ולא רצה כקובץ נייד */
 const isPortable = () => !!process.env.PORTABLE_EXECUTABLE_FILE;
 
@@ -87,6 +95,7 @@ async function status() {
   // לבדיקות ויזואליות בלבד מחוץ ל-Windows
   if (process.env.PDFIVRIT_FAKE_WIN) return { supported: true, context: true, thumbs: false, default: false, installedPath: null };
   if (process.platform !== 'win32') return { supported: false, error: 'האפשרויות האלה זמינות רק ב-Windows.' };
+  if (isStore()) return { supported: false, error: STORE_NOTE };
   const ctx = await query(`${ROOT}\\SystemFileAssociations\\.pdf\\shell\\${VERBS[1].key}\\command`, null);
   const th = await query(`${ROOT}\\.pdf\\ShellEx\\${THUMB_IID}`, null);
   const def = await query(`${ROOT}\\.pdf\\OpenWithProgids`, PROGID);
@@ -173,6 +182,7 @@ async function setDefault(on, opts = {}) {
 
 async function set(key, on) {
   if (process.platform !== 'win32') return { error: 'זמין רק ב-Windows.' };
+  if (isStore()) return { error: STORE_NOTE };
   try {
     const fn = { context: setContext, thumbs: setThumbs, default: setDefault }[key];
     const res = await fn(on);
@@ -189,7 +199,7 @@ async function set(key, on) {
  * רץ בשקט בכל הפעלה — לא משנה כלום אם שום שילוב לא הופעל.
  */
 async function repair() {
-  if (process.platform !== 'win32' || !app.isPackaged) return;
+  if (process.platform !== 'win32' || !app.isPackaged || isStore()) return;
   try {
     const st = await status();
     if (st.context) await setContext(true);
@@ -206,4 +216,4 @@ async function repair() {
   } catch (e) { /* לא קריטי */ }
 }
 
-module.exports = { status, set, repair };
+module.exports = { status, set, repair, isStore };

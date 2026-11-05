@@ -49,7 +49,14 @@ npm start          # הרצה
 npm test           # בדיקות למנוע (עברית, טפסים, איחוד, פיצול)
 npm run dist            # בניית תוכנת התקנה ל-Windows (גם מלינוקס)
 npm run dist:mac        # בניית ‎.dmg ל-macOS (רק על Mac)
+npm run dist:store      # חבילת ‎.appx לחנות Microsoft (רק על Windows)
 ```
+
+גרסת Microsoft Store נבנית ב-GitHub Actions (‏"Microsoft Store package") כקובץ ‎.appx לא חתום — החנות חותמת בעצמה.
+ערכי הזהות מ-Partner Center נקראים ממשתני הריפו (Settings ← Secrets and variables ← Actions ← Variables):
+`MSSTORE_IDENTITY_NAME`, `MSSTORE_PUBLISHER`, `MSSTORE_PUBLISHER_DISPLAY_NAME`.
+נכסי הלוגו (`build/appx/`) נוצרים מ-`build/logo-full.png` בעזרת `python3 build/make-appx-assets.py`.
+בגרסת החנות העדכונים מגיעים רק מהחנות, והשילוב בסייר (קליק ימני, ברירת מחדל) מנוהל על ידי Windows לפי המניפסט.
 
 מבנה:
 
