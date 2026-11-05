@@ -89,7 +89,9 @@
       "backgroundColor": "transparent",
       "showNameOnTiles": false,
       "customExtensionsPath": "build/appx-file-associations.xml",
-      "artifactName": "EitanPDF-Store-${version}-${arch}.${ext}"
+      "artifactName": "EitanPDF-Store-${version}-${arch}.${ext}",
+      "minVersion": "10.0.17763.0",
+      "maxVersionTested": "10.0.26100.0"
     },
     "mac": {
       "target": [
