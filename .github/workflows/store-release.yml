@@ -1,0 +1,74 @@
+# מגיש את הגרסה החדשה לחנות מיקרוסופט: מחליף בהגשה את הקישור לקובץ ההתקנה ושולח לאישור.
+# רץ לבד אחרי שה-Release הסתיים בהצלחה, ואפשר גם להריץ ידנית (Actions ← Microsoft Store ← Run workflow).
+# הגדרה חד-פעמית של ה-Secrets: ראו installer/STORE.md. בלי ה-Secrets התהליך מדלג בשקט.
+name: Microsoft Store
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'מספר גרסה להגשה (ריק = הגרסה שב-package.json)'
+        required: false
+      dry_run:
+        description: 'הרצת ניסיון: בודק התחברות ומציג מה יישלח, בלי לשלוח'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: microsoft-store
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      STORE_TENANT_ID: ${{ secrets.STORE_TENANT_ID }}
+      STORE_CLIENT_ID: ${{ secrets.STORE_CLIENT_ID }}
+      STORE_CLIENT_SECRET: ${{ secrets.STORE_CLIENT_SECRET }}
+      STORE_SELLER_ID: ${{ secrets.STORE_SELLER_ID }}
+      STORE_PRODUCT_ID: ${{ secrets.STORE_PRODUCT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Check secrets
+        id: check
+        run: |
+          missing=""
+          for k in STORE_TENANT_ID STORE_CLIENT_ID STORE_CLIENT_SECRET STORE_SELLER_ID STORE_PRODUCT_ID; do
+            [ -n "${!k}" ] || missing="$missing $k"
+          done
+          if [ -z "$missing" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "::error::חסרים Secrets:$missing — ראו installer/STORE.md"
+            exit 1
+          else
+            echo "::notice::ההגשה לחנות מיקרוסופט לא הוגדרה (חסרים Secrets:$missing) — מדלגים. ראו installer/STORE.md"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          node-version: 22
+
+      - name: Submit to Microsoft Store
+        if: steps.check.outputs.ready == 'true'
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          VERSION="${INPUT_VERSION:-$(node -p "require('./package.json').version")}"
+          VERSION="${VERSION#v}"
+          URL="https://github.com/${{ github.repository }}/releases/download/v$VERSION/EitanPDF-Setup-$VERSION-x64.exe"
+          echo "גרסה $VERSION — $URL"
+          node installer/store-submit.mjs "$URL" $([ "$DRY_RUN" = "true" ] && echo --dry-run)
