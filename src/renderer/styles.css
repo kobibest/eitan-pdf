@@ -975,3 +975,19 @@ body.no-panel .find-bar { left: 20px; }
 .item-bar .font-pick.in-bar .font-btn { height: 30px; font-size: 14px; border-color: transparent; background: var(--line-soft); }
 .item-bar .font-pick.in-bar .font-menu { inset-inline-end: auto; width: 280px; }
 .font-menu .font-list { overflow-x: hidden; }
+
+/* ---------- הדפסה ---------- */
+/* מודפסים רק עמודי המסמך (#print-root), כל עמוד על דף משלו, מוקטן מעט כדי שהמדפסת לא תחתוך בשוליים */
+#print-root { display: none; }
+@media print {
+  html, body { height: auto; background: #fff; overflow: visible; }
+  body { display: block; }
+  body > :not(#print-root) { display: none !important; }
+  #print-root { display: block; }
+  .print-sheet {
+    width: 100vw; height: 100vh; padding: 5mm;
+    overflow: hidden; break-after: page; break-inside: avoid;
+  }
+  .print-sheet:last-child { break-after: auto; }
+  .print-sheet img { display: block; width: 100%; height: 100%; object-fit: contain; }
+}

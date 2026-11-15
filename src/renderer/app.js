@@ -2210,6 +2210,107 @@ async function buildBytes(pages, opts = {}) {
   return opts.final ? applySecurity(result) : result;
 }
 
+/* =========================================================
+ * הדפסה
+ * ======================================================= */
+// מדפיסים את המסמך כמו שהוא נראה עכשיו (כולל שינויים שלא נשמרו): בונים את הקובץ,
+// מציירים כל עמוד לתמונה חדה, ושולחים לחלון ההדפסה של המערכת.
+const PRINT_DPI = 200;
+const PRINT_MAX_AREA = 20e6; // פיקסלים לעמוד — עמודי ענק מוקטנים כדי לא לחנוק את הזיכרון
+let printing = false;
+
+/** מכין את עמודי ההדפסה ב-DOM. מחזיר { landscape, count, cleanup } */
+async function preparePrint(onProgress) {
+  const bytes = await buildBytes(S.pages);
+  const pdf = await pdfjsLib.getDocument({ ...PDFJS_OPTS, data: bytes }).promise;
+  const root = h('<div id="print-root"></div>');
+  const urls = [];
+  const cleanup = () => {
+    root.remove();
+    urls.forEach((u) => URL.revokeObjectURL(u));
+    pdf.destroy();
+  };
+  try {
+    // כיוון הדף לפי רוב העמודים; עמוד בכיוון האחר מסובב ברבע סיבוב — על הנייר זה יוצא אותו דבר
+    const pages = [];
+    let wide = 0;
+    for (let n = 1; n <= pdf.numPages; n++) {
+      const page = await pdf.getPage(n);
+      const vp = page.getViewport({ scale: 1, rotation: page.rotate });
+      const isWide = vp.width > vp.height * 1.02;
+      if (isWide) wide++;
+      pages.push({ page, isWide });
+    }
+    const landscape = wide > pages.length / 2;
+    for (let i = 0; i < pages.length; i++) {
+      const { page, isWide } = pages[i];
+      if (onProgress) onProgress(i + 1, pages.length);
+      const rotation = (page.rotate + (isWide !== landscape ? 90 : 0)) % 360;
+      const base = page.getViewport({ scale: 1, rotation });
+      const full = PRINT_DPI / 72;
+      const scale = full * Math.min(1, Math.sqrt(PRINT_MAX_AREA / (base.width * full * base.height * full)));
+      const vp = page.getViewport({ scale, rotation });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(vp.width));
+      canvas.height = Math.max(1, Math.round(vp.height));
+      try {
+        const ctx = canvas.getContext('2d', { alpha: false });
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport: vp, background: '#ffffff', intent: 'print', annotationMode: pdfjsLib.AnnotationMode.ENABLE }).promise;
+        const blob = await new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('העמוד גדול מדי להדפסה'))), 'image/jpeg', 0.92));
+        const url = URL.createObjectURL(blob);
+        urls.push(url);
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const sheet = h('<div class="print-sheet"></div>');
+        sheet.append(img);
+        root.append(sheet);
+      } finally {
+        canvas.width = 0; canvas.height = 0;
+        page.cleanup();
+      }
+    }
+    root.prepend(h(`<style>@page { size: ${landscape ? 'landscape' : 'portrait'}; margin: 0; }</style>`));
+    document.body.append(root);
+    return { landscape, count: pages.length, cleanup };
+  } catch (e) {
+    cleanup();
+    throw e;
+  }
+}
+
+async function printDocument() {
+  const d = D();
+  if (!d || !d.pages.length || printing) return false;
+  if ($('#modal-root').children.length) return false;
+  document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  printing = true;
+  try {
+    const res = await busy('מכין להדפסה…', async () => {
+      const job = await preparePrint((i, n) => { if (n > 1) busyText(`מכין להדפסה… עמוד ${i} מתוך ${n}`); });
+      try {
+        busyText('ממתין לחלון ההדפסה…');
+        return await api.print({ landscape: job.landscape });
+      } finally {
+        job.cleanup();
+      }
+    });
+    if (!res.success && res.reason && !/cancel/i.test(res.reason)) {
+      toast('ההדפסה נכשלה. בדקו שמותקנת מדפסת ושהיא מחוברת.', { error: true });
+      return false;
+    }
+    return res.success;
+  } catch (e) {
+    console.error(e);
+    toast('ההדפסה נכשלה: ' + ipcMsg(e), { error: true });
+    return false;
+  } finally {
+    printing = false;
+  }
+}
+
 /** בדיקת הגדרות האבטחה לפני שמירה. מחזיר הודעת שגיאה, או null */
 function securityProblem() {
   const st = D() && D().security;
@@ -2584,6 +2685,7 @@ function updateChrome() {
   const d = D();
   $('#btn-save').disabled = !d || !d.pages.length;
   $('#btn-find').disabled = !d || !d.pages.length;
+  $('#btn-print').disabled = !d || !d.pages.length;
   $('#btn-save').classList.toggle('dirty', !!(d && d.dirty));
   updateViewCtl();
   document.title = d ? `${d.title}${d.dirty ? ' •' : ''} — איתןPDF` : 'איתןPDF';
@@ -3708,6 +3810,7 @@ async function saveAs(opts = {}) {
 function wire() {
   $('#btn-save').onclick = () => saveDocument();
   $('#btn-find').onclick = () => (F.open ? closeFind() : openFind());
+  $('#btn-print').onclick = () => printDocument();
   buildViewCtl();
 
   // מעקב אחרי העמוד הנוכחי, ובמצב "עמוד יחיד" — גלילה בקצה מעבירה עמוד
@@ -3750,6 +3853,7 @@ function wire() {
     if (cmd === 'open') openDialog();
     else if (cmd === 'save') saveDocument();
     else if (cmd === 'save-as') saveAs();
+    else if (cmd === 'print') printDocument();
     else if (cmd === 'find') openFind();
     else if (cmd === 'find-next') { if (F.open && F.results.length) stepFind(1); else openFind(); }
     else if (cmd === 'find-prev') { if (F.open && F.results.length) stepFind(-1); else openFind(); }
@@ -3865,5 +3969,5 @@ function wire() {
   await Promise.all(savedSignatures().map(preloadRatio));
   render();
   api.rendererReady();
-  window.__app = { S, docs, D, render, setView, openInEditor, commit, saveDocument, buildBytes, activate, pageLines, undo, redo, pdfjsLib, PDFJS_OPTS }; // לבדיקות אוטומטיות
+  window.__app = { S, docs, D, render, setView, openInEditor, commit, saveDocument, buildBytes, preparePrint, printDocument, activate, pageLines, undo, redo, pdfjsLib, PDFJS_OPTS }; // לבדיקות אוטומטיות
 })();

@@ -141,6 +141,7 @@ function createWindow() {
         { label: 'פתיחת קבצים…', accelerator: 'CmdOrCtrl+O', click: send('open') },
         { label: 'שמירה', accelerator: 'CmdOrCtrl+S', click: send('save') },
         { label: 'שמירה בשם…', accelerator: 'CmdOrCtrl+Shift+S', click: send('save-as') },
+        { label: 'הדפסה…', accelerator: 'CmdOrCtrl+P', click: send('print') },
         { label: 'דחיסת הקובץ…', click: send('compress') },
         { label: 'המרה ל-Word…', click: send('convert-word') },
         { label: 'שמירה כתמונות…', click: send('convert-images') },
@@ -321,6 +322,14 @@ ipcMain.handle('digital-sign', async (_e, { bytes, source, pageIndex, rect, name
   return digisig.signPdf(new Uint8Array(bytes), signer, { pageIndex, rect: ap ? rect : null, name, reason, location, signingTime, appearance: ap });
 });
 ipcMain.handle('verify-signatures', (_e, bytes) => digisig.verify(new Uint8Array(bytes)));
+
+/** הדפסה: הממשק מכין את העמודים (ראו printDocument), וכאן נפתח חלון ההדפסה של המערכת */
+ipcMain.handle('print', (_e, opts) => new Promise((resolve) => {
+  win.webContents.print(
+    { silent: false, printBackground: true, landscape: !!(opts && opts.landscape), margins: { marginType: 'none' } },
+    (success, failureReason) => resolve({ success, reason: failureReason || '' }),
+  );
+}));
 
 ipcMain.handle('show-in-folder', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('open-path', (_e, p) => shell.openPath(p));

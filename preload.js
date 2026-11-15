@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('api', {
   readAsset: (rel) => ipcRenderer.invoke('read-asset', rel),
   listFonts: () => ipcRenderer.invoke('list-fonts'),
   readFont: (family, bold) => ipcRenderer.invoke('read-font', family, bold),
+  print: (opts) => ipcRenderer.invoke('print', opts),
   showInFolder: (p) => ipcRenderer.invoke('show-in-folder', p),
   openPath: (p) => ipcRenderer.invoke('open-path', p),
   appVersion: () => ipcRenderer.invoke('app-version'),
