@@ -1,0 +1,72 @@
+# חבילת Microsoft Store (MSIX/AppX) — קובץ ‎.appx לא חתום להעלאה ל-Partner Center. החנות חותמת בעצמה.
+# נבנית בכל דחיפה לכל ענף, ובהפעלה ידנית (Actions ← "Microsoft Store package" ← Run workflow).
+# ההורדה: לשונית Actions ← הריצה ← Artifacts ← EitanPDF-MSStore
+#
+# ערכי הזהות מ-Partner Center (Product identity) נקראים ממשתני הריפו —
+# Settings ← Secrets and variables ← Actions ← לשונית Variables:
+#   MSSTORE_IDENTITY_NAME            — Package/Identity/Name
+#   MSSTORE_PUBLISHER                — Package/Identity/Publisher (מתחיל ב-CN=)
+#   MSSTORE_PUBLISHER_DISPLAY_NAME   — Package/Properties/PublisherDisplayName
+# כשהם חסרים, החבילה נבנית עם זהות בדיקה (כדי לוודא שהבנייה תקינה), ושם הקובץ מסומן not-for-store.
+name: Microsoft Store package
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  appx:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      ID_NAME: ${{ vars.MSSTORE_IDENTITY_NAME }}
+      ID_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
+      ID_PUBNAME: ${{ vars.MSSTORE_PUBLISHER_DISPLAY_NAME }}
+      # בלי חתימה: לא מחפשים תעודה במחשב הבנייה
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and test
+        run: |
+          npm ci
+          npm test
+
+      - name: Build appx
+        run: |
+          SUFFIX=""
+          if [ -n "$ID_NAME" ] && [ -n "$ID_PUBLISHER" ] && [ -n "$ID_PUBNAME" ]; then
+            EXTRA=(-c.appx.identityName="$ID_NAME" -c.appx.publisher="$ID_PUBLISHER" -c.appx.publisherDisplayName="$ID_PUBNAME")
+          else
+            echo "::warning::לא הוגדרו משתני MSSTORE_* — נבנית חבילת בדיקה עם זהות זמנית, שאי אפשר להעלות לחנות."
+            EXTRA=(-c.appx.identityName=EitanPDF.Test -c.appx.publisher="CN=EitanPDF-Test" -c.appx.publisherDisplayName="EitanPDF Test")
+            SUFFIX="-not-for-store"
+          fi
+          npx electron-builder --win appx --x64 --publish never "${EXTRA[@]}"
+          VERSION=$(node -p "require('./package.json').version")
+          SHORT=$(git rev-parse --short HEAD)
+          mkdir -p out
+          cp "dist/EitanPDF-Store-$VERSION-x64.appx" "out/EitanPDF-Store-$VERSION-$SHORT$SUFFIX.appx"
+          ls -la out
+
+      # בדיקת המניפסט שבתוך החבילה: שיוך PDF, זהות, נכסים, ושאין קובץ עדכון אוטומטי
+      - name: Verify package
+        run: python -I -X utf8 .github/scripts/verify-appx.py out/*.appx
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EitanPDF-MSStore
+          path: out/*.appx
+          retention-days: 30
+          compression-level: 0

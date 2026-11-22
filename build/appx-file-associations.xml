@@ -1,0 +1,12 @@
+<!-- שיוך קובצי PDF בחבילת Microsoft Store (MSIX). electron-builder משלב את הקטע הזה בתוך <Extensions> של המניפסט.
+     Windows מעביר לתוכנה את נתיב הקובץ בשורת הפקודה, כמו בגרסה הרגילה. -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="pdf">
+            <uap:DisplayName>מסמך PDF</uap:DisplayName>
+            <uap:Logo>assets\Square44x44Logo.png</uap:Logo>
+            <uap:InfoTip>פתיחה באיתןPDF</uap:InfoTip>
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="application/pdf">.pdf</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
